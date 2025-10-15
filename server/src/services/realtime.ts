@@ -89,7 +89,7 @@ export function createRealtimeService(io: SocketIOServer): RealtimeService {
       } catch (error) {
         console.error('Failed to broadcast snapshot', error);
       }
-    }, 5_000);
+    }, 200);
   }
 
   async function stop(): Promise<void> {

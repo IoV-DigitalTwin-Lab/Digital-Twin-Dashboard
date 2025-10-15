@@ -73,7 +73,7 @@ function createRealtimeService(io) {
             catch (error) {
                 console.error('Failed to broadcast snapshot', error);
             }
-        }, 5000);
+        }, 200);
     }
     async function stop() {
         if (!started)

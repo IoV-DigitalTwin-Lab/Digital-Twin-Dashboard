@@ -9,7 +9,7 @@ export function useVehiclesQuery() {
       const { data } = await apiClient.get<VehicleState[]>('/vehicles')
       return data
     },
-    refetchInterval: 10_000,
+    refetchInterval: 200,
   })
 }
 
@@ -20,7 +20,7 @@ export function useRsusQuery() {
       const { data } = await apiClient.get<RsuState[]>('/rsus')
       return data
     },
-    refetchInterval: 15_000,
+    refetchInterval: 1000,
   })
 }
 
@@ -31,7 +31,7 @@ export function useTasksQuery() {
       const { data } = await apiClient.get<TaskSummary[]>('/tasks')
       return data
     },
-    refetchInterval: 8_000,
+    refetchInterval: 1000,
   })
 }
 
@@ -42,6 +42,6 @@ export function useDashboardMetricsQuery() {
       const { data } = await apiClient.get<DashboardMetrics>('/metrics/dashboard')
       return data
     },
-    refetchInterval: 5_000,
+    refetchInterval: 1000,
   })
 }

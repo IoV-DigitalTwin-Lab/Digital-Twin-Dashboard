@@ -23,9 +23,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
     set({ status: 'connecting' })
 
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket'],
-    })
+    const socket = io(SOCKET_URL)
 
     socket.on('connect', () => {
       set({ status: 'connected' })
@@ -37,6 +35,10 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
     socket.on('dashboard:snapshot', (payload: DashboardSnapshot) => {
       set({ latestSnapshot: payload })
+    })
+
+    socket.on('connect_error', (error) => {
+      console.error('Socket connection failed', error)
     })
 
     socket.on('db:event', (event) => {
