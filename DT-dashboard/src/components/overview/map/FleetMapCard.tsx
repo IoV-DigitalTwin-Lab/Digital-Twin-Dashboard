@@ -2,10 +2,10 @@ import { Card, Empty, Skeleton, Space, Tag, Typography } from 'antd'
 import type { RsuState, VehicleState } from '../../../types/api'
 
 const MAP_BOUNDS = {
-  minX: -100,
-  maxX: 200,
-  minY: -200,
-  maxY: 100,
+  minX: 0,
+  maxX: 2700,
+  minY: 0,
+  maxY: 3100,
 }
 
 const MAP_WIDTH = MAP_BOUNDS.maxX - MAP_BOUNDS.minX
@@ -144,8 +144,7 @@ export function FleetMapCard({ vehicles, rsus, loading }: FleetMapCardProps) {
             })}
           </svg>
           <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
-            Coordinates normalized using SUMO grid bounds ({MAP_BOUNDS.minX},{MAP_BOUNDS.minY}) to ({MAP_BOUNDS.maxX}
-            ,{MAP_BOUNDS.maxY}). Coverage circles are illustrative rather than scale-accurate.
+            Coordinates normalized using Erlangen map bounds (0,0) to (2700,3100). Coverage circles are illustrative rather than scale-accurate.
           </Typography.Text>
         </div>
       )}

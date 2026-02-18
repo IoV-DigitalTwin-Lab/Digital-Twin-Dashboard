@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { getVehicleState, getVehicleStates } from '../services/vehicleService';
+import { getVehicleStatesFromRedis } from '../services/redisService';
 
 const router = Router();
 
 router.get('/', async (_req, res, next) => {
   try {
-    const vehicles = await getVehicleStates();
+    const vehicles = await getVehicleStatesFromRedis();
     res.json(vehicles);
   } catch (error) {
     next(error);
@@ -19,7 +19,8 @@ router.get('/:vehId', async (req, res, next) => {
       res.status(400).json({ error: 'vehId must be a number' });
       return;
     }
-    const vehicle = await getVehicleState(vehId);
+    const vehicles = await getVehicleStatesFromRedis();
+    const vehicle = vehicles.find(v => v.vehId === vehId);
     if (!vehicle) {
       res.status(404).json({ error: 'Vehicle not found' });
       return;
