@@ -1,12 +1,52 @@
-import { useState } from 'react'
-import { ConfigProvider, Layout, theme } from 'antd'
-import { Content, Footer, Header } from 'antd/es/layout/layout'
-import { DashboardLayout } from './components/layout/DashboardLayout'
+import { ConfigProvider, Layout, Space, Tag, Typography, theme } from 'antd'
+import { useDashboardData } from './hooks/useDashboardData'
+import { SimulationMap } from './components/map/SimulationMap'
 
+const { Header, Content } = Layout
 const { defaultAlgorithm } = theme
 
+function DashboardHeader() {
+  const { socketStatus, simulationState } = useDashboardData()
+
+  return (
+    <Space align="center" size={16} style={{ height: '100%', width: '100%', justifyContent: 'space-between' }}>
+      <Typography.Title level={4} style={{ margin: 0 }}>
+        IoV Digital Twin - Task Offloading Visualization
+      </Typography.Title>
+      <Space>
+        {simulationState.running && (
+          <Tag color="blue">
+            Sim: {simulationState.simTime.toFixed(2)}s
+          </Tag>
+        )}
+        <Tag
+          color={socketStatus === 'connected' ? 'green' : socketStatus === 'connecting' ? 'gold' : 'volcano'}
+        >
+          {socketStatus === 'connected' ? '🟢' : socketStatus === 'connecting' ? '🟡' : '🔴'} Socket {socketStatus}
+        </Tag>
+      </Space>
+    </Space>
+  )
+}
+
 export function App() {
-  const [activeView, setActiveView] = useState('overview')
+  const {
+    vehiclesQuery,
+    rsusQuery,
+    socketSnapshot,
+    getVehicles,
+    getRsus,
+    taskLifecycleEvents,
+    activeTaskCommunications,
+    simulationState,
+    roadNetwork,
+  } = useDashboardData()
+
+  const loading = vehiclesQuery.isFetching || rsusQuery.isFetching
+
+  // Prefer direct simulation data, fallback to Redis polling
+  const vehicles = getVehicles().length > 0 ? getVehicles() : (socketSnapshot?.vehicles ?? vehiclesQuery.data ?? [])
+  const rsus = getRsus().length > 0 ? getRsus() : (socketSnapshot?.rsus ?? rsusQuery.data ?? [])
 
   return (
     <ConfigProvider
@@ -27,20 +67,20 @@ export function App() {
       }}
     >
       <Layout style={{ minHeight: '100vh' }}>
-        <Header style={{ padding: '0 24px' }}>
-          <DashboardLayout.Header />
+        <Header style={{ padding: '0 24px', borderBottom: '1px solid #e8e8e8' }}>
+          <DashboardHeader />
         </Header>
-        <Layout>
-          <DashboardLayout.Sidebar activeKey={activeView} onSelect={setActiveView} />
-          <Layout style={{ padding: '24px 32px 32px' }}>
-            <Content>
-              <DashboardLayout.Content activeKey={activeView} />
-            </Content>
-            <Footer style={{ textAlign: 'center', padding: '24px 0 0' }}>
-              Digital Twin Dashboard © {new Date().getFullYear()} Group 22
-            </Footer>
-          </Layout>
-        </Layout>
+        <Content style={{ padding: '16px' }}>
+          <SimulationMap
+            vehicles={vehicles}
+            rsus={rsus}
+            loading={loading}
+            taskLifecycleEvents={taskLifecycleEvents}
+            activeTaskCommunications={activeTaskCommunications}
+            simTime={simulationState.simTime}
+            roadNetwork={roadNetwork}
+          />
+        </Content>
       </Layout>
     </ConfigProvider>
   )

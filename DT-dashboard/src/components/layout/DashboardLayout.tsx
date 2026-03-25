@@ -1,46 +1,10 @@
 import type { ReactNode } from 'react'
-import { Layout, Menu, Space, Tag, Typography } from 'antd'
-import {
-  AlertOutlined,
-  AreaChartOutlined,
-  CarOutlined,
-  ClusterOutlined,
-  RadarChartOutlined,
-} from '@ant-design/icons'
-import type { MenuProps } from 'antd'
+import { Layout, Space, Tag, Typography } from 'antd'
 import { useDashboardData } from '../../hooks/useDashboardData'
 import { OverviewGrid } from '../overview/OverviewGrid'
 import { AlertsView, FleetView, RsuView, TasksView } from '../views/index'
 
-const { Sider, Content: AntContent } = Layout
-
-const menuItems: MenuProps['items'] = [
-  {
-    key: 'overview',
-    icon: <AreaChartOutlined />,
-    label: 'Overview',
-  },
-  {
-    key: 'fleet',
-    icon: <CarOutlined />,
-    label: 'Fleet',
-  },
-  {
-    key: 'rsus',
-    icon: <ClusterOutlined />,
-    label: 'RSUs',
-  },
-  {
-    key: 'tasks',
-    icon: <RadarChartOutlined />,
-    label: 'Tasks',
-  },
-  {
-    key: 'alerts',
-    icon: <AlertOutlined />,
-    label: 'Alerts',
-  },
-]
+const { Content: AntContent } = Layout
 
 function DashboardHeader() {
   const { socketStatus } = useDashboardData()
@@ -56,30 +20,6 @@ function DashboardHeader() {
         Socket {socketStatus}
       </Tag>
     </Space>
-  )
-}
-
-interface DashboardSidebarProps {
-  activeKey: string
-  onSelect: (key: string) => void
-}
-
-function DashboardSidebar({ activeKey, onSelect }: DashboardSidebarProps) {
-  return (
-    <Sider width={220} theme="light" style={{ background: '#ffffff' }}>
-      <div style={{ padding: '16px 16px 8px' }}>
-        <Typography.Text type="secondary" style={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
-          Navigation
-        </Typography.Text>
-      </div>
-      <Menu
-        mode="inline"
-        selectedKeys={[activeKey]}
-        items={menuItems}
-        style={{ borderInlineEnd: 'none' }}
-        onClick={({ key }) => onSelect(String(key))}
-      />
-    </Sider>
   )
 }
 
@@ -136,6 +76,5 @@ function DashboardContent({ activeKey }: DashboardContentProps) {
 
 export const DashboardLayout = {
   Header: DashboardHeader,
-  Sidebar: DashboardSidebar,
   Content: DashboardContent,
 }

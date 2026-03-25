@@ -405,6 +405,135 @@ function mapRedisTaskStatus(redisStatus: string): TaskSummary['status'] {
     FAILED: 'failed',
     EXPIRED: 'expired',
   };
-  
+
   return statusMap[redisStatus] || 'pending';
+}
+
+// ============================================================================
+// TASK LIFECYCLE EVENTS STREAM
+// ============================================================================
+
+export interface TaskLifecycleEvent {
+  taskId: string;
+  vehicleId: string;
+  eventType: string;
+  simTime: number;
+  targetId?: string;
+  decisionType?: string;
+  posX: number;
+  posY: number;
+  additionalInfo?: string;
+  timestamp: number;
+  streamId: string;
+}
+
+/**
+ * Read task lifecycle events from Redis Stream
+ * @param lastId - Last event ID received (use '0' to read from beginning, '$' for new only)
+ * @param count - Maximum number of events to read
+ */
+export async function getTaskLifecycleEvents(lastId: string = '$', count: number = 100): Promise<TaskLifecycleEvent[]> {
+  const redis = getRedisClient();
+  const events: TaskLifecycleEvent[] = [];
+
+  try {
+    // Read from the global task lifecycle events stream
+    const results = await redis.xread(
+'COUNT',
+      count,
+      'BLOCK',
+      1000, // Block for 1 second if no new events
+      'STREAMS',
+      'task_lifecycle_events',
+      lastId
+    );
+
+    if (!results || results.length === 0) {
+      return events;
+    }
+
+    // Parse the stream results
+    // Format: [[streamKey, [[id, [field, value, field, value, ...]], ...]]]
+    for (const [_streamKey, messages] of results) {
+      for (const [streamId, fields] of messages as any[]) {
+        const eventData: any = {};
+
+        // Convert array of fields to object
+        for (let i = 0; i < fields.length; i += 2) {
+          eventData[fields[i]] = fields[i + 1];
+        }
+
+        const event: TaskLifecycleEvent = {
+          taskId: eventData.task_id || '',
+          vehicleId: eventData.vehicle_id || '',
+          eventType: eventData.event_type || '',
+          simTime: parseFloat(eventData.sim_time || '0'),
+          targetId: eventData.target_id || undefined,
+          decisionType: eventData.decision_type || undefined,
+          posX: parseFloat(eventData.pos_x || '0'),
+          posY: parseFloat(eventData.pos_y || '0'),
+          additionalInfo: eventData.additional_info || undefined,
+          timestamp: parseFloat(eventData.timestamp || '0'),
+          streamId: streamId as string,
+        };
+
+        events.push(event);
+      }
+    }
+
+    return events;
+  } catch (error) {
+    console.error('Error fetching task lifecycle events from Redis:', error);
+    return [];
+  }
+}
+
+/**
+ * Get lifecycle history for a specific task
+ */
+export async function getTaskLifecycleHistory(taskId: string): Promise<TaskLifecycleEvent[]> {
+  const redis = getRedisClient();
+  const events: TaskLifecycleEvent[] = [];
+
+  try {
+    const taskStreamKey = `task:${taskId}:lifecycle`;
+
+    // Read all events from the task-specific stream
+    const results = await redis.xrange(taskStreamKey, '-', '+');
+
+    if (!results || results.length === 0) {
+      return events;
+    }
+
+    // Parse results
+    for (const [streamId, fields] of results) {
+      const eventData: any = {};
+
+      // Convert array of fields to object
+      for (let i = 0; i < fields.length; i += 2) {
+        eventData[fields[i]] = fields[i + 1];
+      }
+
+      const event: TaskLifecycleEvent = {
+        taskId: taskId,
+        vehicleId: eventData.vehicle_id || '',
+        eventType: eventData.event_type || '',
+        simTime: parseFloat(eventData.sim_time || '0'),
+        targetId: eventData.target_id || undefined,
+        decisionType: eventData.decision_type || undefined,
+        posX: parseFloat(eventData.pos_x || '0'),
+        posY: parseFloat(eventData.pos_y || '0'),
+        additionalInfo: eventData.additional_info || undefined,
+        timestamp: parseFloat(eventData.timestamp || '0'),
+        streamId: streamId as string,
+      };
+
+      events.push(event);
+    }
+
+    return events;
+  } catch (error) {
+    console.error(`Error fetching lifecycle history for task ${taskId}:`, error);
+    return [];
+  }
 }
