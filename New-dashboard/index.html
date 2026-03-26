@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>IoV Digital Twin — Task Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#f8f7f4;color:#1a1a18;font-size:13px}
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+.shell{display:flex;flex-direction:column;height:100vh}
+.topbar{display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;height:42px;background:#fff;border-bottom:1px solid #e5e4df;
+  flex-shrink:0;z-index:1000}
+.main{display:flex;flex:1;overflow:hidden}
+#map{flex:1;z-index:0}
+.sidebar{width:260px;display:flex;flex-direction:column;
+  background:#fff;border-left:1px solid #e5e4df;overflow:hidden;flex-shrink:0}
+
+/* ── Topbar ───────────────────────────────────────────────────────────────── */
+.tb-left{display:flex;align-items:center;gap:10px}
+.tb-title{font-size:13px;font-weight:600;color:#1a1a18}
+.live-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;
+  animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.simtime{font-size:11px;color:#888;font-variant-numeric:tabular-nums}
+.conn-badge{font-size:11px;padding:2px 8px;border-radius:12px;font-weight:500}
+.conn-badge.ok {background:#dcfce7;color:#166534}
+.conn-badge.err{background:#fee2e2;color:#991b1b}
+.conn-badge.try{background:#fef9c3;color:#854d0e}
+
+/* ── Sidebar sections ─────────────────────────────────────────────────────── */
+.sb-head{padding:8px 12px;font-size:10px;font-weight:600;color:#888;
+  letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #f0ede8}
+.task-list{overflow-y:auto;max-height:240px}
+
+/* ── Task items ───────────────────────────────────────────────────────────── */
+.task-item{padding:8px 12px;cursor:pointer;border-left:3px solid transparent;
+  transition:background .1s;border-bottom:1px solid #f5f4f0}
+.task-item:hover{background:#f8f7f4}
+.task-item.sel{background:#eff6ff;border-left-color:#3b82f6}
+.t-id{font-size:12px;font-weight:600;color:#1a1a18}
+.t-meta{font-size:10px;color:#888;margin-top:1px}
+.t-badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:20px;
+  margin-top:3px;font-weight:500}
+.s-generated       {background:#f1f5f9;color:#475569}
+.s-metadata_sent   {background:#fef9c3;color:#854d0e}
+.s-decision_returned{background:#fde8d0;color:#7c2d12}
+.s-task_data_sent  {background:#dbeafe;color:#1e40af}
+.s-remote_processing{background:#ede9fe;color:#4c1d95}
+.s-result_returning{background:#d1fae5;color:#065f46}
+.s-complete        {background:#dcfce7;color:#14532d}
+.s-local_queued    {background:#f0f9ff;color:#0c4a6e}
+.s-local_processing{background:#e0f2fe;color:#075985}
+.s-local_complete  {background:#dcfce7;color:#14532d}
+.s-failed          {background:#fee2e2;color:#991b1b}
+.prog-wrap{height:3px;background:#e5e4df;border-radius:2px;margin-top:4px;overflow:hidden}
+.prog-fill{height:100%;border-radius:2px;transition:width .4s}
+
+/* ── Resource panel ───────────────────────────────────────────────────────── */
+.res-panel{padding:12px;flex:1;overflow:auto}
+.res-title{font-size:12px;font-weight:600;color:#1a1a18;margin-bottom:10px}
+.gauge{margin-bottom:8px}
+.g-row{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px}
+.g-name{color:#666}.g-val{font-weight:600;color:#1a1a18}
+.g-bar{height:5px;background:#e5e4df;border-radius:3px;overflow:hidden}
+.g-fill{height:100%;border-radius:3px;transition:width .5s ease}
+.fill-cpu{background:#818cf8}
+.fill-mem{background:#34d399}
+.fill-eng{background:#fb923c}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.info-cell{background:#f8f7f4;border-radius:6px;padding:6px 8px}
+.i-k{font-size:10px;color:#888;margin-bottom:2px}
+.i-v{font-size:12px;font-weight:600;color:#1a1a18}
+
+/* ── Leaflet overrides ────────────────────────────────────────────────────── */
+.leaflet-container{background:#f0ede8}
+.leaflet-control-zoom{border:1px solid #e5e4df!important;border-radius:6px!important}
+.leaflet-control-zoom a{color:#555!important;border-color:#e5e4df!important}
+
+/* ── Map markers ──────────────────────────────────────────────────────────── */
+.entity-marker{display:flex;align-items:center;gap:4px;padding:3px 6px;
+  border:2px solid #fff;border-radius:16px;color:#fff;font-size:10px;
+  font-weight:700;box-shadow:0 1px 5px rgba(0,0,0,.25);line-height:1}
+.entity-marker{cursor:pointer;user-select:none;pointer-events:auto}
+.entity-marker .icon{display:flex;align-items:center;justify-content:center;width:12px;height:12px}
+.entity-marker .tag{letter-spacing:.02em}
+.v-marker{background:#2563eb}
+.rsu-marker{background:#b45309}
+.sv-marker{background:#6d28d9}
+.entity-marker.sel{box-shadow:0 0 0 3px rgba(59,130,246,.35),0 1px 5px rgba(0,0,0,.25)}
+
+/* ── Comm lines on map ────────────────────────────────────────────────────── */
+/* drawn via Leaflet polylines with dashArray */
+
+/* ── State label tooltip on map ───────────────────────────────────────────── */
+.state-tip{background:#fff;border:1px solid #e5e4df;border-radius:4px;
+  font-size:10px;padding:2px 6px;font-weight:500;white-space:nowrap;
+  box-shadow:0 1px 3px rgba(0,0,0,.1)}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="tb-left">
+      <span class="live-dot" id="live-dot"></span>
+      <span class="tb-title">IoV Digital Twin — Task Dashboard</span>
+      <span class="conn-badge try" id="conn-badge">connecting…</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <span style="font-size:11px;color:#aaa">
+        <span style="color:#555;font-weight:500" id="entity-count">0</span> entities
+        &nbsp;·&nbsp;
+        <span style="color:#555;font-weight:500" id="task-count">0</span> active tasks
+      </span>
+      <span class="simtime" id="simtime">sim 00:00:00.000</span>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- Leaflet map -->
+    <div id="map"></div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <div class="sb-head">Active Tasks</div>
+      <div class="task-list" id="task-list">
+        <div style="padding:12px;font-size:11px;color:#aaa">Waiting for simulation data…</div>
+      </div>
+
+      <div style="border-top:1px solid #f0ede8">
+        <div class="sb-head">Selected entity</div>
+        <div class="res-panel">
+          <div class="res-title" id="res-title">— none selected —</div>
+          <div class="gauge">
+            <div class="g-row"><span class="g-name">CPU</span><span class="g-val" id="g-cpu">—</span></div>
+            <div class="g-bar"><div class="g-fill fill-cpu" id="fill-cpu" style="width:0%"></div></div>
+          </div>
+          <div class="gauge">
+            <div class="g-row"><span class="g-name">Memory</span><span class="g-val" id="g-mem">—</span></div>
+            <div class="g-bar"><div class="g-fill fill-mem" id="fill-mem" style="width:0%"></div></div>
+          </div>
+          <div class="gauge">
+            <div class="g-row"><span class="g-name">Energy</span><span class="g-val" id="g-eng">—</span></div>
+            <div class="g-bar"><div class="g-fill fill-eng" id="fill-eng" style="width:0%"></div></div>
+          </div>
+          <div class="info-grid">
+            <div class="info-cell"><div class="i-k">Speed</div><div class="i-v" id="i-spd">—</div></div>
+            <div class="info-cell"><div class="i-k">Queue</div><div class="i-v" id="i-q">—</div></div>
+            <div class="info-cell"><div class="i-k">Position</div><div class="i-v" id="i-pos" style="font-size:10px">—</div></div>
+            <div class="info-cell"><div class="i-k">Active comm</div><div class="i-v" id="i-comm" style="font-size:10px">—</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════════════════════════════════════════ */
+const WS_URL       = 'ws://localhost:8765';
+const MAP_GEOJSON  = 'map.geojson';          // output of convert_map.py
+const RECONNECT_MS = 3000;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMM LINE COLORS per offload leg
+═══════════════════════════════════════════════════════════════════════════ */
+const COMM_COLORS = {
+  metadata_sent:      '#d97706',   // ① V → RSU
+  decision_returned:  '#f59e0b',   // ② RSU → V
+  task_data_sent:     '#7c3aed',   // ③ V → target
+  result_returning:   '#059669',   // ④ target → V
+  local_processing:   '#3b82f6',   // local
+  remote_processing:  '#a78bfa',   // processing at target (subtle)
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════════════════════ */
+const entities   = {};     // id → {kind, id, x, y, speed, energy, lat, lon}
+const resources  = {};     // id → {cpu, mem, energy, queue, processing, sim_time}
+const tasks      = {};     // task_id → task object
+const commLines  = {};     // task_id → { line, dot, timer }
+const markers    = {};     // id → Leaflet marker
+const markerVisual = {};   // id → { kind, sel }
+let   selectedId = null;
+let   sumoOffset = [0, 0];
+let   sumoBoundary = null; // [xmin, ymin, xmax, ymax]
+let   geoBbox = null;      // [lat_min, lon_min, lat_max, lon_max]
+let   map, geojsonLayer;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAP INIT
+═══════════════════════════════════════════════════════════════════════════ */
+function initMap(center) {
+  map = L.map('map', {
+    center: center,
+    zoom: 15,
+    zoomControl: true,
+    attributionControl: false,
+  });
+
+  // Tile layer — using OSM. For offline demo swap for a local tile server.
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    opacity: 0.55,
+  }).addTo(map);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LOAD MAP GEOJSON (roads + polygons from convert_map.py)
+═══════════════════════════════════════════════════════════════════════════ */
+async function loadMapGeoJSON() {
+  try {
+    const resp = await fetch(MAP_GEOJSON);
+    if (!resp.ok) throw new Error(resp.statusText);
+    const gj = await resp.json();
+
+    // Store SUMO offset for coordinate conversion
+    if (gj.metadata?.sumo_offset) sumoOffset = gj.metadata.sumo_offset;
+    if (gj.metadata?.sumo_boundary) sumoBoundary = gj.metadata.sumo_boundary;
+    if (gj.metadata?.bbox) geoBbox = gj.metadata.bbox;
+
+    // Init map centered on network
+    const center = gj.metadata?.center ?? [49.5983, 11.0048]; // Erlangen fallback
+    initMap(center);
+
+    // Draw roads
+    L.geoJSON(gj, {
+      filter: f => f.properties.kind === 'road',
+      style: f => {
+        const spd = f.properties.speed ?? 50;
+        const w   = spd >= 80 ? 3 : spd >= 50 ? 2 : 1.5;
+        return { color:'#6b7280', weight:w, opacity:0.55, dashArray:null };
+      },
+    }).addTo(map);
+
+    // Draw buildings / polygons (subtle fill)
+    L.geoJSON(gj, {
+      filter: f => f.properties.kind === 'polygon',
+      style: () => ({
+        color:'#9ca3af', weight:0.5, opacity:0.4,
+        fillColor:'#e5e7eb', fillOpacity:0.3,
+      }),
+    }).addTo(map);
+
+    console.log('Map loaded:', gj.metadata);
+
+  } catch (e) {
+    console.warn('Could not load map.geojson:', e.message,
+      '— initialising map at Erlangen default position');
+    initMap([49.5983, 11.0048]);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COORDINATE CONVERSION  SUMO (x,y) → Leaflet (lat,lon)
+   Uses the proj string from net.xml via sumolib offset.
+   For the Erlangen map the coordinates are already metric UTM-style;
+   we apply the offset that sumolib exports.
+═══════════════════════════════════════════════════════════════════════════ */
+function sumoToLatLon(x, y) {
+  // Primary fallback for this dashboard: linear map SUMO XY boundary to GeoJSON bbox.
+  if (sumoBoundary && geoBbox && sumoBoundary.length === 4 && geoBbox.length === 4) {
+    const [xmin, ymin, xmax, ymax] = sumoBoundary;
+    const [latMin, lonMin, latMax, lonMax] = geoBbox;
+    const width = (xmax - xmin);
+    const height = (ymax - ymin);
+
+    // Some simulations emit local XY (0..width, 0..height), others emit global SUMO XY.
+    const looksLocal = width > 0 && height > 0 &&
+      x >= (-0.2 * width) && x <= (1.2 * width) &&
+      y >= (-0.2 * height) && y <= (1.2 * height);
+
+    const xr = width !== 0 ? (looksLocal ? (x / width) : ((x - xmin) / width)) : 0.5;
+    const yr = height !== 0 ? (looksLocal ? (y / height) : ((y - ymin) / height)) : 0.5;
+    const lon = lonMin + xr * (lonMax - lonMin);
+    const lat = latMin + yr * (latMax - latMin);
+    return [lat, lon];
+  }
+
+  // Legacy fallback: degree offset approximation.
+  const lon = x / 111320 * Math.cos(49.6 * Math.PI / 180) + sumoOffset[0];
+  const lat = y / 110540 + sumoOffset[1];
+  return [lat, lon];
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ENTITY MARKERS
+═══════════════════════════════════════════════════════════════════════════ */
+function markerHtml(kind, id, sel) {
+  const cleaned = id.replace('vehicle:', '').replace('rsu:', '').replace('sv:', '');
+  const label = cleaned.toUpperCase().slice(0, 8);
+  const base = kind === 'rsu' ? 'rsu-marker' : (kind === 'sv' ? 'sv-marker' : 'v-marker');
+  const cls = `entity-marker ${base}${sel ? ' sel' : ''}`;
+  const size = kind === 'vehicle' ? [62, 24] : [70, 24];
+  const icon = kind === 'rsu'
+    ? `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="white" d="M11 2h2l2 8h-2l-1.1 12h-1.8L9 10H7l2-8h2zM4 20h16v2H4z"/></svg>`
+    : `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="white" d="M3 13l2-6h14l2 6v6h-2v-2H5v2H3v-6zm4 2a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm10 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/></svg>`;
+  return L.divIcon({
+    className: '',
+    html: `<div class="${cls}" style="width:${size[0]}px;height:${size[1]}px"><span class="icon">${icon}</span><span class="tag">${label}</span></div>`,
+    iconSize: size,
+    iconAnchor: [size[0]/2, size[1]/2],
+  });
+}
+
+function upsertMarker(e) {
+  const [lat, lon] = sumoToLatLon(e.x, e.y);
+  e.lat = lat; e.lon = lon;
+  const sel = e.id === selectedId;
+
+  if (markers[e.id]) {
+    const m = markers[e.id];
+    m.setLatLng([lat, lon]);
+    const vis = markerVisual[e.id] || {};
+    if (vis.kind !== e.kind || vis.sel !== sel) {
+      m.setIcon(markerHtml(e.kind, e.id, sel));
+      markerVisual[e.id] = { kind: e.kind, sel };
+    }
+  } else {
+    const m = L.marker([lat, lon], {
+      icon: markerHtml(e.kind, e.id, sel),
+      zIndexOffset: e.kind === 'vehicle' ? 100 : 200,
+      interactive: true,
+      riseOnHover: true,
+    }).addTo(map);
+    m.on('click', (ev) => {
+      if (ev?.originalEvent) {
+        ev.originalEvent.stopPropagation();
+      }
+      selectEntity(e.id);
+    });
+    m.bindTooltip(`${e.kind.toUpperCase()} ${e.id}`, { direction: 'top', offset: [0, -12] });
+    markers[e.id] = m;
+    markerVisual[e.id] = { kind: e.kind, sel };
+  }
+}
+
+function stopCommAnimation(taskId) {
+  const anim = commLines[taskId];
+  if (!anim) return;
+  if (anim.timer) clearInterval(anim.timer);
+  if (anim.line && map.hasLayer(anim.line)) map.removeLayer(anim.line);
+  if (anim.dot && map.hasLayer(anim.dot)) map.removeLayer(anim.dot);
+  delete commLines[taskId];
+}
+
+function startCommAnimation(taskId, pts, color) {
+  stopCommAnimation(taskId);
+  if (!pts || pts.length < 2) return;
+
+  const line = L.polyline(pts, {
+    color,
+    weight: 2.5,
+    dashArray: '7 6',
+    opacity: 0.9,
+  }).addTo(map);
+
+  const dot = L.circleMarker(pts[0], {
+    radius: 4,
+    color: '#ffffff',
+    weight: 1,
+    fillColor: color,
+    fillOpacity: 1,
+    opacity: 1,
+  }).addTo(map);
+
+  const start = pts[0];
+  const end = pts[1];
+  const durationMs = 1000;
+  let t = 0;
+
+  const timer = setInterval(() => {
+    t = (t + 60) % durationMs;
+    const p = t / durationMs;
+    const lat = start[0] + (end[0] - start[0]) * p;
+    const lon = start[1] + (end[1] - start[1]) * p;
+    dot.setLatLng([lat, lon]);
+  }, 60);
+
+  commLines[taskId] = { line, dot, timer };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMM LINES ON MAP
+═══════════════════════════════════════════════════════════════════════════ */
+function updateCommLine(task) {
+  // Determine endpoints based on current state
+  const veh    = entities[task.vehicle];
+  const target = entities[task.current_target] ?? entities[task.rsu];
+  if (!veh) return;
+
+  const color = COMM_COLORS[task.state] ?? '#94a3b8';
+  const isActive = ['metadata_sent','decision_returned','task_data_sent',
+                    'result_returning','remote_processing','local_processing']
+                    .includes(task.state);
+
+  // Remove old animation
+  stopCommAnimation(task.task_id);
+
+  if (!isActive || !target) return;
+
+  const from = [veh.lat, veh.lon];
+  const to   = [target.lat, target.lon];
+
+  // For decision_returned the arrow goes RSU → Vehicle (swap)
+  const pts = task.state === 'decision_returned' ? [to, from] :
+              task.state === 'result_returning'   ? [to, from] :
+              [from, to];
+
+  startCommAnimation(task.task_id, pts, color);
+}
+
+function clearCommLine(taskId) {
+  stopCommAnimation(taskId);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TASK LIST IN SIDEBAR
+═══════════════════════════════════════════════════════════════════════════ */
+const STATE_LABELS = {
+  generated:          'generated',
+  metadata_sent:      '① sending metadata',
+  decision_returned:  '② decision received',
+  task_data_sent:     '③ sending task data',
+  remote_processing:  'remote processing',
+  result_returning:   '④ result returning',
+  complete:           'complete',
+  local_queued:       'local queued',
+  local_processing:   'local processing',
+  local_complete:     'complete (local)',
+  failed:            'failed',
+};
+
+function renderTaskList() {
+  const list = document.getElementById('task-list');
+  const allTasks = Object.values(tasks);
+  const entityScoped = selectedId
+    ? allTasks.filter(t => t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId)
+    : allTasks;
+
+  const active = entityScoped.filter(t => !['complete', 'local_complete', 'failed'].includes(t.state));
+  const done   = entityScoped.filter(t => ['complete', 'local_complete', 'failed'].includes(t.state));
+
+  document.getElementById('task-count').textContent = active.length;
+
+  if (active.length === 0 && done.length === 0) {
+    list.innerHTML = selectedId
+      ? `<div style="padding:12px;font-size:11px;color:#aaa">No tasks for ${selectedId}…</div>`
+      : '<div style="padding:12px;font-size:11px;color:#aaa">No tasks yet…</div>';
+    return;
+  }
+
+  const sorted = [...active, ...done.slice(-3)];
+  list.innerHTML = sorted.map(t => {
+    const label = STATE_LABELS[t.state] ?? t.state;
+    const isLocal = t.state.startsWith('local');
+    const meta = isLocal
+      ? `${t.vehicle} · local`
+      : `${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}`;
+    const progress = t.progress != null
+      ? `<div class="prog-wrap"><div class="prog-fill fill-${isLocal?'cpu':'mem'}"
+           style="width:${Math.round(t.progress)}%"></div></div>`
+      : '';
+    return `<div class="task-item${t.task_id === selectedTaskId ? ' sel' : ''}"
+                 onclick="selectTask('${t.task_id}')">
+      <div class="t-id">${t.task_id}</div>
+      <div class="t-meta">${meta}</div>
+      <span class="t-badge s-${t.state}">${label}</span>
+      ${progress}
+    </div>`;
+  }).join('');
+}
+
+let selectedTaskId = null;
+function selectTask(id) {
+  selectedTaskId = id;
+  const t = tasks[id];
+  if (t) selectEntity(t.vehicle);
+  renderTaskList();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESOURCE PANEL
+═══════════════════════════════════════════════════════════════════════════ */
+function selectEntity(id) {
+  selectedId = id;
+  // Refresh all marker icons to show/clear selection ring
+  Object.entries(entities).forEach(([eid, e]) => {
+    if (markers[eid]) {
+      const sel = (eid === id);
+      markers[eid].setIcon(markerHtml(e.kind, eid, sel));
+      markerVisual[eid] = { kind: e.kind, sel };
+    }
+  });
+  updateResPanel();
+  renderTaskList();
+}
+
+function updateResPanel() {
+  if (!selectedId) return;
+  const e = entities[selectedId];
+  const r = resources[selectedId];
+  if (!e && !r) return;
+
+  document.getElementById('res-title').textContent =
+    ((e?.kind ? `${e.kind} ` : '') + (e?.id ?? selectedId)).toUpperCase() + ' resources';
+
+  const cpu = r?.cpu ?? 0;
+  const mem = r?.mem ?? 0;
+  const eng = r?.energy ?? e?.energy ?? 0;
+
+  document.getElementById('g-cpu').textContent  = Math.round(cpu) + '%';
+  document.getElementById('g-mem').textContent  = Math.round(mem) + '%';
+  document.getElementById('g-eng').textContent  = Math.round(eng) + '%';
+  document.getElementById('fill-cpu').style.width = Math.round(cpu) + '%';
+  document.getElementById('fill-mem').style.width = Math.round(mem) + '%';
+  document.getElementById('fill-eng').style.width = Math.round(eng) + '%';
+
+  document.getElementById('i-spd').textContent =
+    (e?.kind === 'rsu') ? '—' : (e?.speed != null ? Math.round(e.speed * 3.6) + ' km/h' : '—');
+  document.getElementById('i-pos').textContent =
+    e ? `${e.x.toFixed(1)}, ${e.y.toFixed(1)}` : '—';
+
+  const queueFromRedis = r?.queue;
+  const openStates = new Set(['complete', 'local_complete', 'failed']);
+  const relatedTasks = Object.values(tasks).filter(t => {
+    if (openStates.has(t.state)) return false;
+    return t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId;
+  });
+  document.getElementById('i-q').textContent = (queueFromRedis != null ? String(queueFromRedis) : String(relatedTasks.length || 0));
+
+  const activeLeg = relatedTasks.map(t => STATE_LABELS[t.state]).filter(Boolean).join(', ');
+  document.getElementById('i-comm').textContent = activeLeg || '—';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WEBSOCKET
+═══════════════════════════════════════════════════════════════════════════ */
+let ws, wsRetryTimer;
+
+function connectWS() {
+  setBadge('try', 'connecting…');
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    setBadge('ok', 'live');
+    console.log('WS connected');
+  };
+
+  ws.onmessage = evt => {
+    try {
+      const msg = JSON.parse(evt.data);
+      handleMsg(msg);
+    } catch(e) { console.warn('Bad WS message', e); }
+  };
+
+  ws.onclose = () => {
+    setBadge('err', 'disconnected');
+    wsRetryTimer = setTimeout(connectWS, RECONNECT_MS);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+function handleMsg(msg) {
+  if (msg.type === 'positions') {
+    Object.entries(msg.data).forEach(([id, e]) => {
+      entities[id] = { ...entities[id], ...e };
+      if (map) upsertMarker(entities[id]);
+    });
+
+    if (!selectedId && Object.keys(entities).length > 0) {
+      const preferred = Object.values(entities).find(v => v.kind === 'vehicle') || Object.values(entities)[0];
+      if (preferred?.id) {
+        selectEntity(preferred.id);
+      }
+    }
+
+    document.getElementById('entity-count').textContent = Object.keys(entities).length;
+    // Refresh comm lines since positions changed
+    Object.values(tasks).forEach(updateCommLine);
+    updateResPanel();
+  }
+
+  else if (msg.type === 'resources') {
+    Object.entries(msg.data).forEach(([id, r]) => {
+      resources[id] = { ...resources[id], ...r };
+    });
+    updateResPanel();
+  }
+
+  else if (msg.type === 'task_event') {
+    const t = msg.data;
+    const prev = tasks[t.task_id] ?? {};
+    tasks[t.task_id] = { ...prev, ...t };
+    if (map) updateCommLine(tasks[t.task_id]);
+    if (t.state === 'complete' || t.state === 'local_complete' || t.state === 'failed') {
+      setTimeout(() => clearCommLine(t.task_id), 2000);
+    }
+    renderTaskList();
+  }
+}
+
+function setBadge(cls, text) {
+  const b = document.getElementById('conn-badge');
+  b.className = 'conn-badge ' + cls;
+  b.textContent = text;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIM CLOCK (driven by task events; shown as wall clock offset)
+═══════════════════════════════════════════════════════════════════════════ */
+let simMs = 0;
+setInterval(() => {
+  simMs += 100;
+  const s = Math.floor(simMs / 1000) % 60;
+  const m = Math.floor(simMs / 60000) % 60;
+  const h = Math.floor(simMs / 3600000);
+  const f = simMs % 1000;
+  document.getElementById('simtime').textContent =
+    'sim ' + pad(h) + ':' + pad(m) + ':' + pad(s) + '.' + pad3(f);
+}, 100);
+function pad(n)  { return String(n).padStart(2, '0'); }
+function pad3(n) { return String(n).padStart(3, '0'); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BOOT
+═══════════════════════════════════════════════════════════════════════════ */
+(async () => {
+  await loadMapGeoJSON();
+  connectWS();
+})();
+</script>
+</body>
+</html>
