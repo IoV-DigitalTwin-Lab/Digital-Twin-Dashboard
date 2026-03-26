@@ -4,8 +4,7 @@ import cors from 'cors';
 import { loadEnv } from './config/env';
 import { createSocketServer } from './sockets/server';
 import apiRouter from './routes';
-// Data simulator disabled - using live Redis data from simulation
-// import { createDataSimulator } from './services/dataSimulator';
+import { createDataSimulator } from './services/dataSimulator';
 
 loadEnv();
 
@@ -28,23 +27,19 @@ const server = http.createServer(app);
 
 createSocketServer(server);
 
-// Dummy data simulator is DISABLED when using live Redis data
-// Set DATA_SIMULATOR_ENABLED=false in .env or remove to disable
-const simulatorEnabled = (process.env.DATA_SIMULATOR_ENABLED ?? 'false').toLowerCase() === 'true';
+const simulatorEnabled = (process.env.DATA_SIMULATOR_ENABLED ?? 'true').toLowerCase() !== 'false';
+const simulator = simulatorEnabled ? createDataSimulator() : null;
 
-if (simulatorEnabled) {
-  console.warn('WARNING: Data simulator is enabled. Disable it to use live Redis data.');
-  // const simulator = createDataSimulator();
-  // simulator.start().catch((error) => {
-  //   console.error('Failed to start data simulator', error);
-  // });
-} else {
-  console.log('Data simulator disabled - using live Redis data from simulation');
+if (simulator) {
+  simulator
+    .start()
+    .catch((error) => {
+      console.error('Failed to start data simulator', error);
+    });
 }
 
 server.listen(port, host, () => {
   console.log(`API listening on http://${host}:${port}`);
-  console.log(`Data source: ${simulatorEnabled ? 'Dummy Simulator (PostgreSQL)' : 'Live Redis'}`);
 });
 
 let shuttingDown = false;
@@ -56,7 +51,9 @@ const shutdown = async () => {
 
   shuttingDown = true;
   console.log('Shutting down...');
-  
+  if (simulator) {
+    await simulator.stop();
+  }
   server.close(() => {
     process.exit(0);
   });

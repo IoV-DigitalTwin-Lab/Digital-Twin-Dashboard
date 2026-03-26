@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { getRsusFromRedis } from '../services/redisService';
+import { getRsu, getRsus } from '../services/rsuService';
 
 const router = Router();
 
 router.get('/', async (_req, res, next) => {
   try {
-    const rsus = await getRsusFromRedis();
+    const rsus = await getRsus();
     res.json(rsus);
   } catch (error) {
     next(error);
@@ -19,8 +19,7 @@ router.get('/:rsuId', async (req, res, next) => {
       res.status(400).json({ error: 'rsuId must be a number' });
       return;
     }
-    const rsus = await getRsusFromRedis();
-    const rsu = rsus.find(r => r.rsuId === rsuId);
+    const rsu = await getRsu(rsuId);
     if (!rsu) {
       res.status(404).json({ error: 'RSU not found' });
       return;

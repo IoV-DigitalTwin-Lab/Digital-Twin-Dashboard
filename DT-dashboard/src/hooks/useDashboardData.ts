@@ -13,14 +13,6 @@ export function useDashboardData() {
   const latestSnapshot = useSocketStore((state) => state.latestSnapshot)
   const status = useSocketStore((state) => state.status)
 
-  // Direct simulation data (from TCP bridge)
-  const getVehicles = useSocketStore((state) => state.getVehicles)
-  const getRsus = useSocketStore((state) => state.getRsus)
-  const taskLifecycleEvents = useSocketStore((state) => state.taskLifecycleEvents)
-  const activeTaskCommunications = useSocketStore((state) => state.activeTaskCommunications)
-  const simulationState = useSocketStore((state) => state.simulationState)
-  const roadNetwork = useSocketStore((state) => state.roadNetwork)
-
   useEffect(() => {
     connect()
     return () => {
@@ -35,13 +27,5 @@ export function useDashboardData() {
     metricsQuery,
     socketSnapshot: latestSnapshot,
     socketStatus: status,
-
-    // Direct simulation data
-    getVehicles,
-    getRsus,
-    taskLifecycleEvents,
-    activeTaskCommunications,
-    simulationState,
-    roadNetwork,
   }
 }
