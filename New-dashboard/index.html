@@ -11,6 +11,8 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   background:#f8f7f4;color:#1a1a18;font-size:13px}
+:root{--sidebar-width:260px}
+:root{--task-list-height:240px}
 
 /* ── Layout ───────────────────────────────────────────────────────────────── */
 .shell{display:flex;flex-direction:column;height:100vh}
@@ -18,8 +20,11 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
   padding:0 16px;height:42px;background:#fff;border-bottom:1px solid #e5e4df;
   flex-shrink:0;z-index:1000}
 .main{display:flex;flex:1;overflow:hidden}
-#map{flex:1;z-index:0}
-.sidebar{width:260px;display:flex;flex-direction:column;
+#map{flex:1;min-width:0;z-index:0}
+.sidebar-resizer{width:8px;cursor:col-resize;background:linear-gradient(to right,#f8f7f4,#efede8);
+  border-left:1px solid #ece9e2;border-right:1px solid #ece9e2;flex-shrink:0}
+.sidebar-resizer:hover{background:linear-gradient(to right,#efede8,#e5e1d8)}
+.sidebar{width:var(--sidebar-width);min-width:140px;max-width:70vw;display:flex;flex-direction:column;
   background:#fff;border-left:1px solid #e5e4df;overflow:hidden;flex-shrink:0}
 
 /* ── Topbar ───────────────────────────────────────────────────────────────── */
@@ -37,7 +42,11 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 /* ── Sidebar sections ─────────────────────────────────────────────────────── */
 .sb-head{padding:8px 12px;font-size:10px;font-weight:600;color:#888;
   letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #f0ede8}
-.task-list{overflow-y:auto;max-height:240px}
+.task-list{overflow-y:auto;height:var(--task-list-height);min-height:80px;flex:0 0 auto}
+.task-resizer{height:8px;cursor:row-resize;background:linear-gradient(to bottom,#f8f7f4,#efede8);
+  border-top:1px solid #ece9e2;border-bottom:1px solid #ece9e2;flex-shrink:0}
+.task-resizer:hover{background:linear-gradient(to bottom,#efede8,#e5e1d8)}
+.selected-panel{border-top:1px solid #f0ede8;display:flex;flex-direction:column;flex:1;min-height:140px;overflow:hidden}
 
 /* ── Task items ───────────────────────────────────────────────────────────── */
 .task-item{padding:8px 12px;cursor:pointer;border-left:3px solid transparent;
@@ -129,28 +138,31 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
     <!-- Leaflet map -->
     <div id="map"></div>
 
+    <div id="sidebar-resizer" class="sidebar-resizer" title="Drag to resize side panel"></div>
+
     <!-- Sidebar -->
     <div class="sidebar">
 
-      <div class="sb-head">Active Tasks</div>
+      <div class="sb-head" id="active-tasks-head">Active Tasks</div>
       <div class="task-list" id="task-list">
         <div style="padding:12px;font-size:11px;color:#aaa">Waiting for simulation data…</div>
       </div>
+      <div id="task-resizer" class="task-resizer" title="Drag to resize active tasks"></div>
 
-      <div style="border-top:1px solid #f0ede8">
+      <div class="selected-panel" id="selected-panel">
         <div class="sb-head">Selected entity</div>
         <div class="res-panel">
           <div class="res-title" id="res-title">— none selected —</div>
           <div class="gauge">
-            <div class="g-row"><span class="g-name">CPU</span><span class="g-val" id="g-cpu">—</span></div>
+            <div class="g-row"><span class="g-name">CPU Usage</span><span class="g-val" id="g-cpu">—</span></div>
             <div class="g-bar"><div class="g-fill fill-cpu" id="fill-cpu" style="width:0%"></div></div>
           </div>
           <div class="gauge">
-            <div class="g-row"><span class="g-name">Memory</span><span class="g-val" id="g-mem">—</span></div>
+            <div class="g-row"><span class="g-name">Memory Usage</span><span class="g-val" id="g-mem">—</span></div>
             <div class="g-bar"><div class="g-fill fill-mem" id="fill-mem" style="width:0%"></div></div>
           </div>
           <div class="gauge">
-            <div class="g-row"><span class="g-name">Energy</span><span class="g-val" id="g-eng">—</span></div>
+            <div class="g-row"><span class="g-name">Battery</span><span class="g-val" id="g-eng">—</span></div>
             <div class="g-bar"><div class="g-fill fill-eng" id="fill-eng" style="width:0%"></div></div>
           </div>
           <div class="info-grid">
@@ -200,6 +212,118 @@ let   sumoOffset = [0, 0];
 let   sumoBoundary = null; // [xmin, ymin, xmax, ymax]
 let   geoBbox = null;      // [lat_min, lon_min, lat_max, lon_max]
 let   map, geojsonLayer;
+let   isResizingSidebar = false;
+let   isResizingTaskList = false;
+
+function formatEntityLabel(kind, rawId) {
+  const source = String(rawId ?? '').trim();
+  if (!source) return 'ENTITY';
+
+  if (kind === 'rsu') {
+    const core = source.replace(/^rsu[:_\s-]*/i, '');
+    return `RSU ${core || source}`;
+  }
+
+  if (kind === 'sv') {
+    const core = source.replace(/^sv[:_\s-]*/i, '');
+    return `SV ${core || source}`;
+  }
+
+  if (kind === 'vehicle') {
+    const core = source.replace(/^vehicle[:_\s-]*/i, '');
+    return `VEHICLE ${core || source}`;
+  }
+
+  return source.toUpperCase();
+}
+
+function setSidebarWidth(px) {
+  const min = 140;
+  const max = Math.max(220, Math.round(window.innerWidth * 0.7));
+  const width = Math.max(min, Math.min(max, Math.round(px)));
+  document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
+  if (map) map.invalidateSize(false);
+}
+
+function setupSidebarResizer() {
+  const handle = document.getElementById('sidebar-resizer');
+  if (!handle) return;
+
+  handle.addEventListener('pointerdown', (ev) => {
+    isResizingSidebar = true;
+    handle.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', (ev) => {
+    if (!isResizingSidebar) return;
+    const proposed = window.innerWidth - ev.clientX;
+    setSidebarWidth(proposed);
+  });
+
+  const stopResize = (ev) => {
+    if (!isResizingSidebar) return;
+    isResizingSidebar = false;
+    if (ev?.pointerId != null && handle.hasPointerCapture(ev.pointerId)) {
+      handle.releasePointerCapture(ev.pointerId);
+    }
+  };
+
+  handle.addEventListener('pointerup', stopResize);
+  handle.addEventListener('pointercancel', stopResize);
+  window.addEventListener('resize', () => {
+    const current = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10);
+    if (!Number.isNaN(current)) setSidebarWidth(current);
+  });
+}
+
+function setTaskListHeight(px) {
+  const sidebar = document.querySelector('.sidebar');
+  const head = document.getElementById('active-tasks-head');
+  const resizer = document.getElementById('task-resizer');
+  if (!sidebar || !head || !resizer) return;
+
+  const minTask = 80;
+  const minSelected = 140;
+  const maxTask = Math.max(minTask, sidebar.clientHeight - head.offsetHeight - resizer.offsetHeight - minSelected);
+  const next = Math.max(minTask, Math.min(maxTask, Math.round(px)));
+  document.documentElement.style.setProperty('--task-list-height', `${next}px`);
+}
+
+function setupTaskListResizer() {
+  const handle = document.getElementById('task-resizer');
+  const sidebar = document.querySelector('.sidebar');
+  const head = document.getElementById('active-tasks-head');
+  if (!handle || !sidebar || !head) return;
+
+  handle.addEventListener('pointerdown', (ev) => {
+    isResizingTaskList = true;
+    handle.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', (ev) => {
+    if (!isResizingTaskList) return;
+    const rect = sidebar.getBoundingClientRect();
+    const proposed = ev.clientY - rect.top - head.offsetHeight;
+    setTaskListHeight(proposed);
+  });
+
+  const stopResize = (ev) => {
+    if (!isResizingTaskList) return;
+    isResizingTaskList = false;
+    if (ev?.pointerId != null && handle.hasPointerCapture(ev.pointerId)) {
+      handle.releasePointerCapture(ev.pointerId);
+    }
+  };
+
+  handle.addEventListener('pointerup', stopResize);
+  handle.addEventListener('pointercancel', stopResize);
+  window.addEventListener('resize', () => {
+    const current = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--task-list-height'), 10);
+    if (!Number.isNaN(current)) setTaskListHeight(current);
+  });
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MAP INIT
@@ -464,7 +588,7 @@ function renderTaskList() {
     return;
   }
 
-  const sorted = [...active, ...done.slice(-3)];
+  const sorted = [...active, ...done];
   list.innerHTML = sorted.map(t => {
     const label = STATE_LABELS[t.state] ?? t.state;
     const isLocal = t.state.startsWith('local');
@@ -516,8 +640,9 @@ function updateResPanel() {
   const r = resources[selectedId];
   if (!e && !r) return;
 
+  const inferredKind = e?.kind ?? (/^rsu[:_\s-]/i.test(selectedId) ? 'rsu' : /^sv[:_\s-]/i.test(selectedId) ? 'sv' : /^vehicle[:_\s-]/i.test(selectedId) ? 'vehicle' : 'entity');
   document.getElementById('res-title').textContent =
-    ((e?.kind ? `${e.kind} ` : '') + (e?.id ?? selectedId)).toUpperCase() + ' resources';
+    `${formatEntityLabel(inferredKind, e?.id ?? selectedId)} resources`;
 
   const cpu = r?.cpu ?? 0;
   const mem = r?.mem ?? 0;
@@ -642,6 +767,8 @@ function pad3(n) { return String(n).padStart(3, '0'); }
 ═══════════════════════════════════════════════════════════════════════════ */
 (async () => {
   await loadMapGeoJSON();
+  setupSidebarResizer();
+  setupTaskListResizer();
   connectWS();
 })();
 </script>
