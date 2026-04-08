@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("bridge")
 
 REDIS_HOST = "localhost"
-REDIS_PORT = 6379
+REDIS_PORT = 16379 #16379 for remote
 REDIS_DBS  = [int(v.strip()) for v in os.getenv("REDIS_DBS", "0,1,2").split(",") if v.strip()]
 WS_HOST    = "0.0.0.0"
 WS_PORT    = 8765
@@ -73,6 +73,15 @@ def normalize_percent(value: float) -> float:
     if value <= 1.0:
         return min(100.0, value * 100.0)
     return min(100.0, value)
+
+
+def usage_from_util_or_available(util_value: float | None, available_value: float | None) -> float:
+    """Return usage percent from utilization when present, otherwise 100-available."""
+    if util_value is not None and util_value >= 0:
+        return normalize_percent(util_value)
+    if available_value is not None and available_value >= 0:
+        return normalize_percent(100.0 - normalize_percent(available_value))
+    return 0.0
 
 
 def map_task_state(status: str, decision_type: str) -> str:
@@ -204,7 +213,18 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
         return "remote_processing"
     if et in {"PROCESSING_COMPLETED"}:
         return "result_returning"
-    if et in {"COMPLETED", "COMPLETED_ON_TIME", "COMPLETED_LATE"}:
+    if et in {
+        "COMPLETED",
+        "COMPLETED_ON_TIME",
+        "COMPLETED_LATE",
+        "SV_COMPLETED_LATE",
+        "RSU_COMPLETED_LATE",
+        "COMPLETE",
+        "COMPLETE_ON_TIME",
+        "COMPLETE_LATE",
+        "SV_COMPLETE_LATE",
+        "RSU_COMPLETE_LATE",
+    }:
         return "complete"
     if et in {"FAILED", "OFFLOAD_TIMEOUT_FAIL", "SV_DEADLINE_MISSED", "REJECTED"}:
         return "failed"
@@ -223,8 +243,14 @@ async def resolve_task_context(r: aioredis.Redis, task_id: str) -> tuple[str, st
 
 async def init_task_stream_offsets(redis_sources: list[aioredis.Redis]) -> None:
     for idx, r in enumerate(redis_sources):
-        latest = await r.xrevrange("task_lifecycle_events", max="+", min="-", count=1)
-        task_stream_last_id[idx] = latest[0][0] if latest else "0-0"
+        # Keep one-entry lookback so the current latest event is replayed once after bridge start.
+        latest_two = await r.xrevrange("task_lifecycle_events", max="+", min="-", count=2)
+        if not latest_two:
+            task_stream_last_id[idx] = "0-0"
+        elif len(latest_two) == 1:
+            task_stream_last_id[idx] = "0-0"
+        else:
+            task_stream_last_id[idx] = latest_two[1][0]
 
 
 async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> None:
@@ -312,14 +338,15 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
                 if eid in freshness and freshness[eid] > ts:
                     continue
                 freshness[eid] = ts
+                battery_pct = normalize_percent(to_float(data, "battery_level_pct", 100.0))
                 snapshot[eid] = {
                     "kind": "sv" if eid in service_vehicle_ids else "vehicle",
                     "id": eid,
                     "x": to_float(data, "pos_x", 0.0),
                     "y": to_float(data, "pos_y", 0.0),
                     "speed": to_float(data, "speed", 0.0),
-                    # No battery field in current sim contract; keep stable placeholder.
-                    "energy": 100.0,
+                    # Keep payload key as "energy" for UI compatibility; value is battery percentage.
+                    "energy": battery_pct,
                 }
 
             rsu_keys = await scan_keys(r, "rsu:*:resources")
@@ -335,13 +362,14 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
                 if eid in freshness and freshness[eid] > ts:
                     continue
                 freshness[eid] = ts
+                rsu_energy = normalize_percent(to_float(data, "energy_level_pct", 100.0))
                 snapshot[eid] = {
                     "kind": "rsu",
                     "id": eid,
                     "x": to_float(data, "pos_x", 0.0),
                     "y": to_float(data, "pos_y", 0.0),
                     "speed": 0.0,
-                    "energy": 100.0,
+                    "energy": rsu_energy,
                 }
 
         if snapshot:
@@ -350,7 +378,7 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
 
 
 async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
-    """Poll merged CPU/memory/energy/queue every 500 ms."""
+    """Poll merged CPU/memory/battery/queue every 500 ms."""
     while True:
         resources: dict[str, dict[str, float | int]] = {}
         freshness: dict[str, float] = {}
@@ -368,10 +396,19 @@ async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
                 if eid in freshness and freshness[eid] > ts:
                     continue
                 freshness[eid] = ts
+                battery_pct = normalize_percent(to_float(data, "battery_level_pct", 100.0))
+                vehicle_cpu_usage = usage_from_util_or_available(
+                    to_float(data, "cpu_utilization", -1.0),
+                    to_float(data, "cpu_available", -1.0),
+                )
+                vehicle_mem_usage = usage_from_util_or_available(
+                    to_float(data, "mem_utilization", -1.0),
+                    to_float(data, "mem_available", -1.0),
+                )
                 resources[eid] = {
-                    "cpu": normalize_percent(to_float(data, "cpu_utilization", 0.0)),
-                    "mem": normalize_percent(to_float(data, "mem_utilization", 0.0)),
-                    "energy": 100.0,
+                    "cpu": vehicle_cpu_usage,
+                    "mem": vehicle_mem_usage,
+                    "energy": battery_pct,
                     "queue": int(to_float(data, "queue_length", 0.0)),
                     "processing": int(to_float(data, "processing_count", 0.0)),
                     "sim_time": to_float(data, "last_update", 0.0),
@@ -389,11 +426,19 @@ async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
                 if eid in freshness and freshness[eid] > ts:
                     continue
                 freshness[eid] = ts
+                rsu_energy = normalize_percent(to_float(data, "energy_level_pct", 100.0))
+                rsu_cpu_usage = usage_from_util_or_available(
+                    to_float(data, "cpu_utilization", -1.0),
+                    to_float(data, "cpu_available", -1.0),
+                )
+                rsu_mem_usage = usage_from_util_or_available(
+                    to_float(data, "memory_utilization", -1.0),
+                    to_float(data, "memory_available", -1.0),
+                )
                 resources[eid] = {
-                    # RSU percent utilization is not in contract; expose available values as coarse bars.
-                    "cpu": normalize_percent(to_float(data, "cpu_available", 0.0)),
-                    "mem": normalize_percent(to_float(data, "memory_available", 0.0)),
-                    "energy": 100.0,
+                    "cpu": rsu_cpu_usage,
+                    "mem": rsu_mem_usage,
+                    "energy": rsu_energy,
                     "queue": int(to_float(data, "queue_length", 0.0)),
                     "processing": int(to_float(data, "processing_count", 0.0)),
                     "sim_time": to_float(data, "update_time", 0.0),
