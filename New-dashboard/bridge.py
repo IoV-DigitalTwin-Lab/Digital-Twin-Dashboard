@@ -67,6 +67,16 @@ def to_float(data: dict[str, str], key: str, default: float = 0.0) -> float:
         return default
 
 
+def to_int(data: dict[str, str], key: str, default: int = 0) -> int:
+    val = data.get(key)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def normalize_percent(value: float) -> float:
     if value <= 0:
         return 0.0
@@ -314,6 +324,145 @@ async def scan_keys(r: aioredis.Redis, pattern: str, count: int = 300) -> list[s
     return keys
 
 
+def extract_run_id_from_latest_key(key: str, family: str) -> str | None:
+    # key format: dt2:<family>:<run_id>:latest
+    token = f"dt2:{family}:"
+    suffix = ":latest"
+    if not key.startswith(token) or not key.endswith(suffix):
+        return None
+    return key[len(token):-len(suffix)]
+
+
+def maybe_best_q_entry(cur: dict[str, Any] | None, nxt: dict[str, Any]) -> dict[str, Any]:
+    if cur is None:
+        return nxt
+    return nxt if float(nxt.get("sinr_db", -1e9)) >= float(cur.get("sinr_db", -1e9)) else cur
+
+
+async def secondary_cycle_poller(redis_sources: list[aioredis.Redis]) -> None:
+    """Join dt2 prediction + q SINR by latest common cycle and broadcast vehicle-centric payloads."""
+    while True:
+        best: dict[str, Any] | None = None
+
+        for r in redis_sources:
+            pred_latest_keys = await scan_keys(r, "dt2:pred:*:latest", count=100)
+            for pred_latest_key in pred_latest_keys:
+                run_id = extract_run_id_from_latest_key(pred_latest_key, "pred")
+                if not run_id:
+                    continue
+
+                pred_latest = await r.hgetall(pred_latest_key)
+                if not pred_latest:
+                    continue
+
+                q_latest = await r.hgetall(f"dt2:q:{run_id}:latest")
+                if not q_latest:
+                    continue
+
+                pred_cycle = to_int(pred_latest, "cycle_id", -1)
+                q_cycle = to_int(q_latest, "cycle_index", -1)
+                if pred_cycle < 0 or q_cycle < 0:
+                    continue
+
+                common_cycle = min(pred_cycle, q_cycle)
+                if common_cycle < 0:
+                    continue
+
+                # Prefer higher cycle first, then newer generated/sim time.
+                score = (
+                    common_cycle,
+                    to_float(pred_latest, "generated_at", 0.0),
+                    to_float(q_latest, "sim_time", 0.0),
+                )
+                if best is None or score > best["score"]:
+                    best = {
+                        "score": score,
+                        "run_id": run_id,
+                        "cycle_id": common_cycle,
+                        "redis": r,
+                    }
+
+        if best is not None:
+            run_id = best["run_id"]
+            cycle_id = best["cycle_id"]
+            r = best["redis"]
+
+            pred_stream = f"dt2:pred:{run_id}:cycle:{cycle_id}:entries"
+            pred_rows = await r.xrange(pred_stream, min="-", max="+", count=20000)
+
+            future_by_vehicle: dict[str, list[dict[str, Any]]] = {}
+            for _, fields in pred_rows:
+                vehicle_id = fields.get("vehicle_id", "")
+                step_index = to_int(fields, "step_index", 0)
+                if not vehicle_id or step_index <= 0:
+                    continue
+
+                point = {
+                    "step_index": step_index,
+                    "predicted_time": to_float(fields, "predicted_time", 0.0),
+                    "pos_x": to_float(fields, "pos_x", 0.0),
+                    "pos_y": to_float(fields, "pos_y", 0.0),
+                    "speed": to_float(fields, "speed", 0.0),
+                    "heading": to_float(fields, "heading", 0.0),
+                    "acceleration": to_float(fields, "acceleration", 0.0),
+                }
+                future_by_vehicle.setdefault(vehicle_id, []).append(point)
+
+            for vehicle_id in future_by_vehicle:
+                future_by_vehicle[vehicle_id].sort(key=lambda p: int(p["step_index"]))
+
+            q_stream = f"dt2:q:{run_id}:entries"
+            # Read newest first and stop once we've consumed enough entries for target cycle.
+            q_rows = await r.xrevrange(q_stream, max="+", min="-", count=20000)
+
+            sinr_by_vehicle: dict[str, dict[str, dict[str, Any]]] = {}
+            seen_target_cycle = False
+            for _, fields in q_rows:
+                row_cycle = to_int(fields, "cycle_index", -1)
+                if row_cycle < cycle_id and seen_target_cycle:
+                    break
+                if row_cycle != cycle_id:
+                    continue
+
+                seen_target_cycle = True
+                tx_id = fields.get("tx_id", "")
+                step_index = to_int(fields, "step_index", 0)
+                if not tx_id or step_index <= 0:
+                    continue
+
+                step_key = str(step_index)
+                candidate = {
+                    "sinr_db": to_float(fields, "sinr_db", 0.0),
+                    "target_id": fields.get("rx_id", ""),
+                    "link_type": fields.get("link_type", ""),
+                    "distance_m": to_float(fields, "distance_m", 0.0),
+                    "predicted_time": to_float(fields, "predicted_time", 0.0),
+                }
+
+                per_vehicle = sinr_by_vehicle.setdefault(tx_id, {})
+                per_vehicle[step_key] = maybe_best_q_entry(per_vehicle.get(step_key), candidate)
+
+            await broadcast({
+                "type": "secondary_future_positions",
+                "data": {
+                    "run_id": run_id,
+                    "cycle_id": cycle_id,
+                    "vehicles": future_by_vehicle,
+                },
+            })
+
+            await broadcast({
+                "type": "secondary_future_sinr",
+                "data": {
+                    "run_id": run_id,
+                    "cycle_id": cycle_id,
+                    "vehicles": sinr_by_vehicle,
+                },
+            })
+
+        await asyncio.sleep(0.1)
+
+
 async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
     """Poll merged vehicle/RSU positions across configured Redis DBs."""
     while True:
@@ -554,6 +703,7 @@ async def main() -> None:
             resource_poller(redis_sources),
             task_lifecycle_stream_poller(redis_sources),
             task_state_poller(redis_sources),
+            secondary_cycle_poller(redis_sources),
         )
 
 if __name__ == "__main__":

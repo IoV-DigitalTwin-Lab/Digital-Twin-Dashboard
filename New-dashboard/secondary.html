@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>IoV Digital Twin - Secondary Simulation</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8f7f4;color:#1a1a18;font-size:13px}
+:root{--sidebar-width:320px}
+.shell{display:flex;flex-direction:column;height:100vh}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:42px;background:#fff;border-bottom:1px solid #e5e4df;flex-shrink:0;z-index:1000}
+.tb-left{display:flex;align-items:center;gap:10px}
+.tb-title{font-size:13px;font-weight:600;color:#1a1a18}
+.live-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.simtime{font-size:11px;color:#888;font-variant-numeric:tabular-nums}
+.conn-badge{font-size:11px;padding:2px 8px;border-radius:12px;font-weight:500}
+.conn-badge.ok{background:#dcfce7;color:#166534}
+.conn-badge.err{background:#fee2e2;color:#991b1b}
+.conn-badge.try{background:#fef9c3;color:#854d0e}
+.main{display:flex;flex:1;overflow:hidden}
+#map{flex:1;min-width:0;z-index:0}
+.sidebar-resizer{width:8px;cursor:col-resize;background:linear-gradient(to right,#f8f7f4,#efede8);border-left:1px solid #ece9e2;border-right:1px solid #ece9e2;flex-shrink:0}
+.sidebar{width:var(--sidebar-width);min-width:230px;max-width:70vw;display:flex;flex-direction:column;background:#fff;border-left:1px solid #e5e4df;overflow:hidden;flex-shrink:0}
+.sb-head{padding:8px 12px;font-size:10px;font-weight:600;color:#888;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #f0ede8}
+.panel{padding:12px;overflow:auto;border-bottom:1px solid #f0ede8}
+.res-title{font-size:12px;font-weight:600;color:#1a1a18;margin-bottom:10px}
+.gauge{margin-bottom:8px}
+.g-row{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px}
+.g-name{color:#666}.g-val{font-weight:600;color:#1a1a18}
+.g-bar{height:5px;background:#e5e4df;border-radius:3px;overflow:hidden}
+.g-fill{height:100%;border-radius:3px;transition:width .5s ease}
+.fill-cpu{background:#818cf8}.fill-mem{background:#34d399}.fill-eng{background:#fb923c}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.info-cell{background:#f8f7f4;border-radius:6px;padding:6px 8px}
+.i-k{font-size:10px;color:#888;margin-bottom:2px}
+.i-v{font-size:12px;font-weight:600;color:#1a1a18}
+.point-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.point-cell{background:#f8f7f4;border-radius:6px;padding:8px}
+.point-k{font-size:10px;color:#888;margin-bottom:2px}
+.point-v{font-size:12px;font-weight:600;color:#1a1a18}
+.note{font-size:11px;color:#888;line-height:1.4}
+.leaflet-container{background:#f0ede8}
+.entity-marker{display:flex;align-items:center;gap:4px;padding:3px 6px;border:2px solid #fff;border-radius:16px;color:#fff;font-size:10px;font-weight:700;box-shadow:0 1px 5px rgba(0,0,0,.25);line-height:1;cursor:pointer;user-select:none}
+.v-marker{background:#2563eb}
+.sv-marker{background:#6d28d9}
+.entity-marker.sel{box-shadow:0 0 0 3px rgba(59,130,246,.35),0 1px 5px rgba(0,0,0,.25)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div class="tb-left">
+      <span class="live-dot"></span>
+      <span class="tb-title">IoV Digital Twin - Secondary Simulation</span>
+      <span class="conn-badge try" id="conn-badge">connecting...</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <span style="font-size:11px;color:#aaa">
+        <span style="color:#555;font-weight:500" id="vehicle-count">0</span> vehicles
+        &nbsp;.&nbsp;
+        cycle <span style="color:#555;font-weight:500" id="cycle-label">-</span>
+      </span>
+      <span class="simtime" id="simtime">sim 00:00:00.000</span>
+    </div>
+  </div>
+
+  <div class="main">
+    <div id="map"></div>
+    <div id="sidebar-resizer" class="sidebar-resizer" title="Drag to resize side panel"></div>
+    <div class="sidebar">
+      <div class="sb-head">Selected vehicle</div>
+      <div class="panel">
+        <div class="res-title" id="res-title">- none selected -</div>
+        <div class="gauge">
+          <div class="g-row"><span class="g-name">CPU Usage</span><span class="g-val" id="g-cpu">-</span></div>
+          <div class="g-bar"><div class="g-fill fill-cpu" id="fill-cpu" style="width:0%"></div></div>
+        </div>
+        <div class="gauge">
+          <div class="g-row"><span class="g-name">Memory Usage</span><span class="g-val" id="g-mem">-</span></div>
+          <div class="g-bar"><div class="g-fill fill-mem" id="fill-mem" style="width:0%"></div></div>
+        </div>
+        <div class="gauge">
+          <div class="g-row"><span class="g-name">Battery</span><span class="g-val" id="g-eng">-</span></div>
+          <div class="g-bar"><div class="g-fill fill-eng" id="fill-eng" style="width:0%"></div></div>
+        </div>
+        <div class="info-grid">
+          <div class="info-cell"><div class="i-k">Speed</div><div class="i-v" id="i-spd">-</div></div>
+          <div class="info-cell"><div class="i-k">Queue</div><div class="i-v" id="i-q">-</div></div>
+          <div class="info-cell"><div class="i-k">Position</div><div class="i-v" id="i-pos" style="font-size:10px">-</div></div>
+          <div class="info-cell"><div class="i-k">Future Points</div><div class="i-v" id="i-future">-</div></div>
+        </div>
+      </div>
+
+      <div class="sb-head">Selected predicted point</div>
+      <div class="panel" style="flex:1">
+        <div class="point-grid">
+          <div class="point-cell"><div class="point-k">Step</div><div class="point-v" id="p-step">-</div></div>
+          <div class="point-cell"><div class="point-k">Time</div><div class="point-v" id="p-time">-</div></div>
+          <div class="point-cell"><div class="point-k">pos_x</div><div class="point-v" id="p-x">-</div></div>
+          <div class="point-cell"><div class="point-k">pos_y</div><div class="point-v" id="p-y">-</div></div>
+          <div class="point-cell"><div class="point-k">SINR (dB)</div><div class="point-v" id="p-sinr">-</div></div>
+          <div class="point-cell"><div class="point-k">Target</div><div class="point-v" id="p-target">-</div></div>
+        </div>
+        <div class="note" style="margin-top:10px">Click a vehicle marker to show its future points. Click a point to inspect pos_x, pos_y, and SINR.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const WS_URL = 'ws://localhost:8765';
+const MAP_GEOJSON = 'map.geojson';
+const RECONNECT_MS = 3000;
+
+const entities = {};
+const resources = {};
+const markers = {};
+const markerVisual = {};
+const futureByVehicle = {};
+const sinrByVehicle = {};
+let selectedId = null;
+let selectedStep = null;
+let sumoOffset = [0, 0];
+let sumoBoundary = null;
+let geoBbox = null;
+let map;
+let ws;
+let wsRetryTimer;
+let isResizingSidebar = false;
+let futureLayer;
+let selectedPointMarker = null;
+
+function toNum(v, d = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+
+function markerHtml(kind, id, sel) {
+  const cleaned = id.replace('vehicle:', '').replace('sv:', '');
+  const label = cleaned.toUpperCase().slice(0, 8);
+  const base = kind === 'sv' ? 'sv-marker' : 'v-marker';
+  const cls = `entity-marker ${base}${sel ? ' sel' : ''}`;
+  const size = [64, 24];
+  const icon = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="white" d="M3 13l2-6h14l2 6v6h-2v-2H5v2H3v-6zm4 2a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm10 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/></svg>`;
+  return L.divIcon({
+    className: '',
+    html: `<div class="${cls}" style="width:${size[0]}px;height:${size[1]}px"><span>${icon}</span><span>${label}</span></div>`,
+    iconSize: size,
+    iconAnchor: [size[0] / 2, size[1] / 2],
+  });
+}
+
+function sumoToLatLon(x, y) {
+  if (sumoBoundary && geoBbox && sumoBoundary.length === 4 && geoBbox.length === 4) {
+    const [xmin, ymin, xmax, ymax] = sumoBoundary;
+    const [latMin, lonMin, latMax, lonMax] = geoBbox;
+    const width = xmax - xmin;
+    const height = ymax - ymin;
+
+    const looksLocal = width > 0 && height > 0 &&
+      x >= (-0.2 * width) && x <= (1.2 * width) &&
+      y >= (-0.2 * height) && y <= (1.2 * height);
+
+    const xr = width !== 0 ? (looksLocal ? (x / width) : ((x - xmin) / width)) : 0.5;
+    const yr = height !== 0 ? (looksLocal ? (y / height) : ((y - ymin) / height)) : 0.5;
+    const lon = lonMin + xr * (lonMax - lonMin);
+    const lat = latMin + yr * (latMax - latMin);
+    return [lat, lon];
+  }
+
+  const lon = x / 111320 * Math.cos(49.6 * Math.PI / 180) + sumoOffset[0];
+  const lat = y / 110540 + sumoOffset[1];
+  return [lat, lon];
+}
+
+function upsertMarker(e) {
+  const [lat, lon] = sumoToLatLon(e.x, e.y);
+  e.lat = lat;
+  e.lon = lon;
+  const sel = e.id === selectedId;
+
+  if (markers[e.id]) {
+    const m = markers[e.id];
+    m.setLatLng([lat, lon]);
+    const vis = markerVisual[e.id] || {};
+    if (vis.kind !== e.kind || vis.sel !== sel) {
+      m.setIcon(markerHtml(e.kind, e.id, sel));
+      markerVisual[e.id] = { kind: e.kind, sel };
+    }
+    return;
+  }
+
+  const m = L.marker([lat, lon], {
+    icon: markerHtml(e.kind, e.id, sel),
+    zIndexOffset: 100,
+    interactive: true,
+    riseOnHover: true,
+  }).addTo(map);
+  m.on('click', () => selectEntity(e.id));
+  markers[e.id] = m;
+  markerVisual[e.id] = { kind: e.kind, sel };
+}
+
+function selectEntity(id) {
+  selectedId = id;
+  selectedStep = null;
+  clearSelectedPointMarker();
+
+  Object.entries(entities).forEach(([eid, e]) => {
+    if (markers[eid]) {
+      const sel = eid === id;
+      markers[eid].setIcon(markerHtml(e.kind, eid, sel));
+      markerVisual[eid] = { kind: e.kind, sel };
+    }
+  });
+
+  updateResourcePanel();
+  clearPointPanel();
+  drawFutureForSelected();
+}
+
+function setSidebarWidth(px) {
+  const min = 230;
+  const max = Math.max(260, Math.round(window.innerWidth * 0.7));
+  const width = Math.max(min, Math.min(max, Math.round(px)));
+  document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
+  if (map) map.invalidateSize(false);
+}
+
+function setupSidebarResizer() {
+  const handle = document.getElementById('sidebar-resizer');
+  if (!handle) return;
+
+  handle.addEventListener('pointerdown', (ev) => {
+    isResizingSidebar = true;
+    handle.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', (ev) => {
+    if (!isResizingSidebar) return;
+    const proposed = window.innerWidth - ev.clientX;
+    setSidebarWidth(proposed);
+  });
+
+  const stopResize = (ev) => {
+    if (!isResizingSidebar) return;
+    isResizingSidebar = false;
+    if (ev?.pointerId != null && handle.hasPointerCapture(ev.pointerId)) {
+      handle.releasePointerCapture(ev.pointerId);
+    }
+  };
+
+  handle.addEventListener('pointerup', stopResize);
+  handle.addEventListener('pointercancel', stopResize);
+}
+
+function sinrColor(sinrDb) {
+  const s = toNum(sinrDb, -999);
+  if (s >= 20) return '#16a34a';
+  if (s >= 10) return '#f59e0b';
+  return '#dc2626';
+}
+
+function clearSelectedPointMarker() {
+  if (selectedPointMarker && futureLayer && futureLayer.hasLayer(selectedPointMarker)) {
+    futureLayer.removeLayer(selectedPointMarker);
+  }
+  selectedPointMarker = null;
+}
+
+function selectPoint(point, sinr) {
+  selectedStep = point.step_index;
+  updatePointPanel(point, sinr);
+
+  clearSelectedPointMarker();
+  const [lat, lon] = sumoToLatLon(toNum(point.pos_x), toNum(point.pos_y));
+  selectedPointMarker = L.circleMarker([lat, lon], {
+    radius: 8,
+    color: '#1d4ed8',
+    weight: 2,
+    fillColor: '#ffffff',
+    fillOpacity: 0.9,
+    opacity: 1,
+  });
+  futureLayer.addLayer(selectedPointMarker);
+}
+
+function drawFutureForSelected() {
+  if (!futureLayer) return;
+  futureLayer.clearLayers();
+  selectedPointMarker = null;
+
+  if (!selectedId) {
+    document.getElementById('i-future').textContent = '-';
+    return;
+  }
+
+  const points = futureByVehicle[selectedId] || [];
+  const sinrMap = sinrByVehicle[selectedId] || {};
+  document.getElementById('i-future').textContent = String(points.length);
+
+  points.forEach((point) => {
+    const [lat, lon] = sumoToLatLon(toNum(point.pos_x), toNum(point.pos_y));
+    const sinr = sinrMap[String(point.step_index)] || null;
+    const color = sinrColor(sinr?.sinr_db);
+    const isSel = selectedStep != null && Number(point.step_index) === Number(selectedStep);
+    const marker = L.circleMarker([lat, lon], {
+      radius: isSel ? 7 : 5,
+      color: '#ffffff',
+      weight: 1,
+      fillColor: color,
+      fillOpacity: isSel ? 0.95 : 0.7,
+      opacity: 0.95,
+    });
+    marker.on('click', () => selectPoint(point, sinr));
+    marker.addTo(futureLayer);
+  });
+}
+
+function updateResourcePanel() {
+  if (!selectedId) return;
+  const e = entities[selectedId];
+  const r = resources[selectedId];
+  if (!e && !r) return;
+
+  const label = String(e?.id || selectedId).replace(/^vehicle[:_\s-]*/i, '').replace(/^sv[:_\s-]*/i, '');
+  document.getElementById('res-title').textContent = `VEHICLE ${label} resources`;
+
+  const cpu = toNum(r?.cpu, 0);
+  const mem = toNum(r?.mem, 0);
+  const eng = toNum(r?.energy ?? e?.energy, 0);
+  const queue = r?.queue != null ? Number(r.queue) : 0;
+
+  document.getElementById('g-cpu').textContent = Math.round(cpu) + '%';
+  document.getElementById('g-mem').textContent = Math.round(mem) + '%';
+  document.getElementById('g-eng').textContent = Math.round(eng) + '%';
+  document.getElementById('fill-cpu').style.width = Math.round(cpu) + '%';
+  document.getElementById('fill-mem').style.width = Math.round(mem) + '%';
+  document.getElementById('fill-eng').style.width = Math.round(eng) + '%';
+
+  document.getElementById('i-spd').textContent = e?.speed != null ? Math.round(e.speed * 3.6) + ' km/h' : '-';
+  document.getElementById('i-q').textContent = String(queue);
+  document.getElementById('i-pos').textContent = e ? `${toNum(e.x).toFixed(1)}, ${toNum(e.y).toFixed(1)}` : '-';
+}
+
+function clearPointPanel() {
+  document.getElementById('p-step').textContent = '-';
+  document.getElementById('p-time').textContent = '-';
+  document.getElementById('p-x').textContent = '-';
+  document.getElementById('p-y').textContent = '-';
+  document.getElementById('p-sinr').textContent = '-';
+  document.getElementById('p-target').textContent = '-';
+}
+
+function updatePointPanel(point, sinr) {
+  document.getElementById('p-step').textContent = String(point.step_index ?? '-');
+  document.getElementById('p-time').textContent = point.predicted_time != null ? Number(point.predicted_time).toFixed(3) : '-';
+  document.getElementById('p-x').textContent = point.pos_x != null ? Number(point.pos_x).toFixed(3) : '-';
+  document.getElementById('p-y').textContent = point.pos_y != null ? Number(point.pos_y).toFixed(3) : '-';
+  document.getElementById('p-sinr').textContent = sinr?.sinr_db != null ? Number(sinr.sinr_db).toFixed(2) : 'N/A';
+  document.getElementById('p-target').textContent = sinr?.target_id || '-';
+}
+
+function setBadge(cls, text) {
+  const b = document.getElementById('conn-badge');
+  b.className = 'conn-badge ' + cls;
+  b.textContent = text;
+}
+
+function connectWS() {
+  setBadge('try', 'connecting...');
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => setBadge('ok', 'live');
+  ws.onmessage = (evt) => {
+    try {
+      handleMsg(JSON.parse(evt.data));
+    } catch (_) {
+      // Ignore malformed messages so dashboard keeps running.
+    }
+  };
+  ws.onclose = () => {
+    setBadge('err', 'disconnected');
+    wsRetryTimer = setTimeout(connectWS, RECONNECT_MS);
+  };
+  ws.onerror = () => ws.close();
+}
+
+function handleMsg(msg) {
+  if (msg.type === 'positions') {
+    Object.entries(msg.data || {}).forEach(([id, e]) => {
+      if (e.kind === 'rsu') return;
+      entities[id] = { ...entities[id], ...e };
+      if (map) upsertMarker(entities[id]);
+    });
+
+    if (!selectedId && Object.keys(entities).length > 0) {
+      const firstId = Object.keys(entities)[0];
+      selectEntity(firstId);
+    }
+
+    document.getElementById('vehicle-count').textContent = String(Object.keys(entities).length);
+    updateResourcePanel();
+  }
+
+  else if (msg.type === 'resources') {
+    Object.entries(msg.data || {}).forEach(([id, r]) => {
+      if (!entities[id]) return;
+      resources[id] = { ...resources[id], ...r };
+    });
+    updateResourcePanel();
+  }
+
+  else if (msg.type === 'secondary_future_positions') {
+    const payload = msg.data || {};
+    document.getElementById('cycle-label').textContent = `${payload.run_id || '-'}:${payload.cycle_id ?? '-'}`;
+
+    const incoming = payload.vehicles || {};
+    Object.keys(futureByVehicle).forEach((k) => delete futureByVehicle[k]);
+    Object.entries(incoming).forEach(([vehicleId, points]) => {
+      futureByVehicle[vehicleId] = Array.isArray(points) ? points : [];
+    });
+
+    if (selectedId) {
+      drawFutureForSelected();
+      if (selectedStep != null) {
+        const p = (futureByVehicle[selectedId] || []).find((x) => Number(x.step_index) === Number(selectedStep));
+        if (p) {
+          const sinr = sinrByVehicle[selectedId]?.[String(selectedStep)] || null;
+          updatePointPanel(p, sinr);
+        }
+      }
+      updateResourcePanel();
+    }
+  }
+
+  else if (msg.type === 'secondary_future_sinr') {
+    const incoming = msg.data?.vehicles || {};
+    Object.keys(sinrByVehicle).forEach((k) => delete sinrByVehicle[k]);
+    Object.entries(incoming).forEach(([vehicleId, byStep]) => {
+      sinrByVehicle[vehicleId] = byStep || {};
+    });
+
+    if (selectedId) {
+      drawFutureForSelected();
+      if (selectedStep != null) {
+        const p = (futureByVehicle[selectedId] || []).find((x) => Number(x.step_index) === Number(selectedStep));
+        if (p) {
+          const sinr = sinrByVehicle[selectedId]?.[String(selectedStep)] || null;
+          updatePointPanel(p, sinr);
+        }
+      }
+    }
+  }
+}
+
+function initMap(center) {
+  map = L.map('map', {
+    center,
+    zoom: 15,
+    zoomControl: true,
+    attributionControl: false,
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    opacity: 0.55,
+  }).addTo(map);
+
+  futureLayer = L.layerGroup().addTo(map);
+}
+
+async function loadMapGeoJSON() {
+  try {
+    const resp = await fetch(MAP_GEOJSON);
+    if (!resp.ok) throw new Error(resp.statusText);
+    const gj = await resp.json();
+
+    if (gj.metadata?.sumo_offset) sumoOffset = gj.metadata.sumo_offset;
+    if (gj.metadata?.sumo_boundary) sumoBoundary = gj.metadata.sumo_boundary;
+    if (gj.metadata?.bbox) geoBbox = gj.metadata.bbox;
+
+    const center = gj.metadata?.center ?? [49.5983, 11.0048];
+    initMap(center);
+
+    L.geoJSON(gj, {
+      filter: (f) => f.properties.kind === 'road',
+      style: (f) => {
+        const spd = f.properties.speed ?? 50;
+        const w = spd >= 80 ? 3 : spd >= 50 ? 2 : 1.5;
+        return { color: '#6b7280', weight: w, opacity: 0.55, dashArray: null };
+      },
+    }).addTo(map);
+
+    L.geoJSON(gj, {
+      filter: (f) => f.properties.kind === 'polygon',
+      style: () => ({
+        color: '#9ca3af', weight: 0.5, opacity: 0.4,
+        fillColor: '#e5e7eb', fillOpacity: 0.3,
+      }),
+    }).addTo(map);
+  } catch (_) {
+    initMap([49.5983, 11.0048]);
+  }
+}
+
+let simMs = 0;
+setInterval(() => {
+  simMs += 100;
+  const s = Math.floor(simMs / 1000) % 60;
+  const m = Math.floor(simMs / 60000) % 60;
+  const h = Math.floor(simMs / 3600000);
+  const f = simMs % 1000;
+  document.getElementById('simtime').textContent =
+    'sim ' + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(f).padStart(3, '0');
+}, 100);
+
+(async () => {
+  await loadMapGeoJSON();
+  setupSidebarResizer();
+  clearPointPanel();
+  connectWS();
+})();
+</script>
+</body>
+</html>
