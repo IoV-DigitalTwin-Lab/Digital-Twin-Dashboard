@@ -359,11 +359,11 @@ def candidate_entity_ids(raw_id: str) -> list[str]:
 
     uniq: list[str] = []
     seen: set[str] = set()
-    for c in candidates:
-        c = c.strip()
-        if c and c not in seen:
-            uniq.append(c)
-            seen.add(c)
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if candidate and candidate not in seen:
+            uniq.append(candidate)
+            seen.add(candidate)
     return uniq
 
 
