@@ -144,11 +144,13 @@ function markerHtml(kind, id, sel) {
   const label = cleaned.toUpperCase().slice(0, 8);
   const base = kind === 'sv' ? 'sv-marker' : 'v-marker';
   const cls = `entity-marker ${base}${sel ? ' sel' : ''}`;
-  const size = [64, 24];
+  const showLabel = !sel;
+  const size = showLabel ? [64, 24] : [24, 24];
   const icon = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="white" d="M3 13l2-6h14l2 6v6h-2v-2H5v2H3v-6zm4 2a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm10 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/></svg>`;
+  const labelHtml = showLabel ? `<span>${label}</span>` : '';
   return L.divIcon({
     className: '',
-    html: `<div class="${cls}" style="width:${size[0]}px;height:${size[1]}px"><span>${icon}</span><span>${label}</span></div>`,
+    html: `<div class="${cls}" style="width:${size[0]}px;height:${size[1]}px"><span>${icon}</span>${labelHtml}</div>`,
     iconSize: size,
     iconAnchor: [size[0] / 2, size[1] / 2],
   });
@@ -200,9 +202,29 @@ function upsertMarker(e) {
     interactive: true,
     riseOnHover: true,
   }).addTo(map);
-  m.on('click', () => selectEntity(e.id));
+  m.on('click', (ev) => {
+    L.DomEvent.stopPropagation(ev);
+    selectEntity(e.id);
+  });
   markers[e.id] = m;
   markerVisual[e.id] = { kind: e.kind, sel };
+}
+
+function clearSelection() {
+  selectedId = null;
+  selectedStep = null;
+  clearSelectedPointMarker();
+
+  Object.entries(entities).forEach(([eid, e]) => {
+    if (markers[eid]) {
+      markers[eid].setIcon(markerHtml(e.kind, eid, false));
+      markerVisual[eid] = { kind: e.kind, sel: false };
+    }
+  });
+
+  drawFutureForSelected();
+  clearPointPanel();
+  document.getElementById('res-title').textContent = '- none selected -';
 }
 
 function selectEntity(id) {
@@ -307,15 +329,14 @@ function drawFutureForSelected() {
   points.forEach((point) => {
     const [lat, lon] = sumoToLatLon(toNum(point.pos_x), toNum(point.pos_y));
     const sinr = sinrMap[String(point.step_index)] || null;
-    const color = sinrColor(sinr?.sinr_db);
     const isSel = selectedStep != null && Number(point.step_index) === Number(selectedStep);
     const marker = L.circleMarker([lat, lon], {
-      radius: isSel ? 7 : 5,
+      radius: isSel ? 10 : 8,
       color: '#ffffff',
       weight: 1,
-      fillColor: color,
-      fillOpacity: isSel ? 0.95 : 0.7,
-      opacity: 0.95,
+      fillColor: '#ef4444',
+      fillOpacity: 0.95,
+      opacity: 1,
     });
     marker.on('click', () => selectPoint(point, sinr));
     marker.addTo(futureLayer);
@@ -468,6 +489,7 @@ function initMap(center) {
   }).addTo(map);
 
   futureLayer = L.layerGroup().addTo(map);
+  map.on('click', () => clearSelection());
 }
 
 async function loadMapGeoJSON() {
