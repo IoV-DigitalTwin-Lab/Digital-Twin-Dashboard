@@ -5,7 +5,6 @@
 convert_map.py   — one-time: converts erlangen.net.xml → map.geojson
 bridge.py        — runs alongside simulation: Redis → WebSocket
 index.html       — the dashboard (open in browser)
-secondary.html   — vehicle-only secondary simulation view
 ```
 
 ## Step 1 — Convert the map (run once)
@@ -53,12 +52,9 @@ HSET task:<task_id>:request \
 ### Important behavior
 - No `PUBLISH task:events` is required.
 - `bridge.py` polls task hashes and emits synthetic WebSocket `task_event` updates.
-- By default, the bridge reads Redis DBs `0,1,2` (matching RSU redisDb split).
-- `bridge.py` also emits secondary simulation streams:
-  - `secondary_future_positions` (from `dt2:pred:*`)
-  - `secondary_future_sinr` (from `dt2:q:*`)
-- Override DB list when needed:
-  `REDIS_DBS=0,1,2 python bridge.py`
+- By default, the bridge connects to `localhost:6379` and reads Redis DBs `0,1,2`.
+- Override endpoint/DBs when needed:
+  `REDIS_HOST=localhost REDIS_PORT=16379 REDIS_DBS=0,1,2 python bridge.py`
 
 ## Step 3 — Start the WebSocket bridge
 
@@ -77,10 +73,7 @@ cd /path/to/dashboard
 python -m http.server 8080
 ```
 
-Open either page in a browser alongside QtEnv:
-
-- Main dashboard: `http://localhost:8080/index.html`
-- Secondary vehicle-only dashboard: `http://localhost:8080/secondary.html`
+Open http://localhost:8080 in a browser alongside QtEnv.
 
 ## Notes
 
