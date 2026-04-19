@@ -333,6 +333,29 @@ def extract_run_id_from_latest_key(key: str, family: str) -> str | None:
     return key[len(token):-len(suffix)]
 
 
+def extract_run_cycle_from_pred_entries_key(key: str) -> tuple[str, int] | None:
+    # key format: dt2:pred:<run_id>:cycle:<cycle_id>:entries
+    token = "dt2:pred:"
+    cycle_token = ":cycle:"
+    suffix = ":entries"
+    if not key.startswith(token) or not key.endswith(suffix):
+        return None
+
+    body = key[len(token):-len(suffix)]
+    if cycle_token not in body:
+        return None
+
+    run_id, cycle_part = body.rsplit(cycle_token, 1)
+    try:
+        cycle_id = int(cycle_part)
+    except (TypeError, ValueError):
+        return None
+
+    if not run_id or cycle_id < 0:
+        return None
+    return run_id, cycle_id
+
+
 def maybe_best_q_entry(cur: dict[str, Any] | None, nxt: dict[str, Any]) -> dict[str, Any]:
     if cur is None:
         return nxt
@@ -374,6 +397,30 @@ async def secondary_cycle_poller(redis_sources: list[aioredis.Redis]) -> None:
 
         for r in redis_sources:
             pred_latest_keys = await scan_keys(r, "dt2:pred:*:latest", count=100)
+
+            # Fallback path for deployments that publish cycle streams but no :latest hash.
+            if not pred_latest_keys:
+                pred_cycle_keys = await scan_keys(r, "dt2:pred:*:cycle:*:entries", count=300)
+                max_cycle_by_run: dict[str, int] = {}
+                for pred_cycle_key in pred_cycle_keys:
+                    parsed = extract_run_cycle_from_pred_entries_key(pred_cycle_key)
+                    if not parsed:
+                        continue
+                    run_id, cycle_id = parsed
+                    if run_id not in max_cycle_by_run or cycle_id > max_cycle_by_run[run_id]:
+                        max_cycle_by_run[run_id] = cycle_id
+
+                for run_id, pred_cycle in max_cycle_by_run.items():
+                    score = (pred_cycle, 0.0)
+                    if best is None or score > best["score"]:
+                        best = {
+                            "score": score,
+                            "run_id": run_id,
+                            "pred_cycle": pred_cycle,
+                            "pred_generated_at": 0.0,
+                            "redis": r,
+                        }
+
             for pred_latest_key in pred_latest_keys:
                 run_id = extract_run_id_from_latest_key(pred_latest_key, "pred")
                 if not run_id:

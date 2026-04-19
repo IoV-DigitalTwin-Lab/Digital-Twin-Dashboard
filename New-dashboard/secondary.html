@@ -139,6 +139,41 @@ function toNum(v, d = 0) {
   return Number.isFinite(n) ? n : d;
 }
 
+function candidateEntityIds(rawId) {
+  const rid = String(rawId || '').trim();
+  if (!rid) return [];
+
+  const candidates = [rid];
+  if (rid.includes(':')) candidates.push(rid.split(':').pop());
+
+  const low = rid.toLowerCase();
+  if (low.startsWith('vehicle:')) candidates.push(rid.slice('vehicle:'.length));
+  if (low.startsWith('vehicle_')) candidates.push(rid.slice('vehicle_'.length));
+  if (low.startsWith('vehicle') && rid.length > 'vehicle'.length) {
+    candidates.push(rid.slice('vehicle'.length).replace(/^[_:-]+/, ''));
+  }
+
+  const uniq = [];
+  const seen = new Set();
+  candidates.forEach((c) => {
+    const value = String(c || '').trim();
+    if (value && !seen.has(value)) {
+      uniq.push(value);
+      seen.add(value);
+    }
+  });
+  return uniq;
+}
+
+function getStoreBySelected(store, entityId) {
+  if (!entityId) return null;
+  const aliases = candidateEntityIds(entityId);
+  for (const alias of aliases) {
+    if (store[alias] != null) return store[alias];
+  }
+  return null;
+}
+
 function markerHtml(kind, id, sel) {
   const cleaned = id.replace('vehicle:', '').replace('sv:', '');
   const label = cleaned.toUpperCase().slice(0, 8);
@@ -322,8 +357,10 @@ function drawFutureForSelected() {
     return;
   }
 
-  const points = futureByVehicle[selectedId] || [];
-  const sinrMap = sinrByVehicle[selectedId] || {};
+  const pointsResolved = getStoreBySelected(futureByVehicle, selectedId);
+  const points = Array.isArray(pointsResolved) ? pointsResolved : [];
+  const sinrResolved = getStoreBySelected(sinrByVehicle, selectedId);
+  const sinrMap = sinrResolved && typeof sinrResolved === 'object' ? sinrResolved : {};
   document.getElementById('i-future').textContent = String(points.length);
 
   points.forEach((point) => {
@@ -445,9 +482,13 @@ function handleMsg(msg) {
     if (selectedId) {
       drawFutureForSelected();
       if (selectedStep != null) {
-        const p = (futureByVehicle[selectedId] || []).find((x) => Number(x.step_index) === Number(selectedStep));
+        const pointsResolved = getStoreBySelected(futureByVehicle, selectedId);
+        const points = Array.isArray(pointsResolved) ? pointsResolved : [];
+        const p = points.find((x) => Number(x.step_index) === Number(selectedStep));
         if (p) {
-          const sinr = sinrByVehicle[selectedId]?.[String(selectedStep)] || null;
+          const sinrResolved = getStoreBySelected(sinrByVehicle, selectedId);
+          const sinrMap = sinrResolved && typeof sinrResolved === 'object' ? sinrResolved : {};
+          const sinr = sinrMap[String(selectedStep)] || null;
           updatePointPanel(p, sinr);
         }
       }
@@ -465,9 +506,13 @@ function handleMsg(msg) {
     if (selectedId) {
       drawFutureForSelected();
       if (selectedStep != null) {
-        const p = (futureByVehicle[selectedId] || []).find((x) => Number(x.step_index) === Number(selectedStep));
+        const pointsResolved = getStoreBySelected(futureByVehicle, selectedId);
+        const points = Array.isArray(pointsResolved) ? pointsResolved : [];
+        const p = points.find((x) => Number(x.step_index) === Number(selectedStep));
         if (p) {
-          const sinr = sinrByVehicle[selectedId]?.[String(selectedStep)] || null;
+          const sinrResolved = getStoreBySelected(sinrByVehicle, selectedId);
+          const sinrMap = sinrResolved && typeof sinrResolved === 'object' ? sinrResolved : {};
+          const sinr = sinrMap[String(selectedStep)] || null;
           updatePointPanel(p, sinr);
         }
       }
