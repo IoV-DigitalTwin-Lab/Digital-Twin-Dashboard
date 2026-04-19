@@ -482,7 +482,7 @@ async def secondary_cycle_poller(redis_sources: list[aioredis.Redis]) -> None:
                 "type": "secondary_future_sinr",
                 "data": {
                     "run_id": run_id,
-                    "cycle_id": cycle_id,
+                    "cycle_id": q_target_cycle if q_target_cycle >= 0 else pred_cycle,
                     "vehicles": sinr_by_vehicle,
                 },
             })
