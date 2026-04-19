@@ -399,11 +399,6 @@ function handleMsg(msg) {
       if (map) upsertMarker(entities[id]);
     });
 
-    if (!selectedId && Object.keys(entities).length > 0) {
-      const firstId = Object.keys(entities)[0];
-      selectEntity(firstId);
-    }
-
     document.getElementById('vehicle-count').textContent = String(Object.keys(entities).length);
     updateResourcePanel();
   }
