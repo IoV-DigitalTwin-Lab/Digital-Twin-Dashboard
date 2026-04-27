@@ -78,6 +78,10 @@ This server listens on `http://localhost:8090` by default and exposes:
 - `GET /api/active-vehicles`
 - `GET /api/task-types`
 - `POST /api/inject-task`
+
+The API gathers live vehicles from the configured Redis DB list, so the
+injection dropdown will include vehicles stored across DBs `0,1,2` by
+default.
 - `GET /api/task-results/<task_id>`
 
 ## Step 5 — Open the dashboard

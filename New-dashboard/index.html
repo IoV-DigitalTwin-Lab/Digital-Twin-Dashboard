@@ -277,7 +277,7 @@ const tasks      = {};     // task_id → task object
 const commLines  = {};     // task_id → { line, dot, timer }
 const markers    = {};     // id → Leaflet marker
 const markerVisual = {};   // id → { kind, sel }
-const API_BASE = window.location.origin;
+const API_BASE = window.DASHBOARD_API_BASE || 'http://localhost:8090';
 const DEFAULT_TASK_TYPES = [
   { id: 'video_processing', name: 'Video Processing' },
   { id: 'traffic_analytics', name: 'Traffic Analytics' },

@@ -38,8 +38,9 @@ DEFAULT_PORT = int(os.getenv("DASHBOARD_PORT", "8090"))
 DEFAULT_HOST = os.getenv("DASHBOARD_HOST", "0.0.0.0")
 REDIS_URL = os.getenv("REDIS_URL")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_PORT = int(os.getenv("REDIS_PORT", "16379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_DBS = [int(value.strip()) for value in os.getenv("REDIS_DBS", "0,1,2").split(",") if value.strip()]
 
 ALGORITHMS = [
     {"key": "random", "label": "Random"},
@@ -70,6 +71,14 @@ def make_redis_client():
     if REDIS_URL:
         return redis.Redis.from_url(REDIS_URL, decode_responses=True)
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+
+
+def make_redis_clients() -> list[Any]:
+    if redis is None:
+        return []
+    if REDIS_URL:
+        return [redis.Redis.from_url(REDIS_URL, decode_responses=True)]
+    return [redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=db, decode_responses=True) for db in REDIS_DBS]
 
 
 def json_response(handler: SimpleHTTPRequestHandler, payload: Any, status: int = 200) -> None:
@@ -104,6 +113,18 @@ def normalize_int(value: Any, default: int = 0) -> int:
         return int(float(value))
     except (TypeError, ValueError):
         return default
+
+
+def scan_keys(r: Any, pattern: str, count: int = 300) -> list[str]:
+    cursor = 0
+    keys: list[str] = []
+    while True:
+        cursor, batch = r.scan(cursor=cursor, match=pattern, count=count)
+        if batch:
+            keys.extend(batch)
+        if cursor == 0:
+            break
+    return keys
 
 
 def fetch_active_vehicles(r: Any) -> list[dict[str, Any]]:
@@ -146,6 +167,55 @@ def fetch_active_vehicles(r: Any) -> list[dict[str, Any]]:
             }
         )
 
+    vehicles.sort(key=lambda item: (item["ttl"] == 0, item["last_update"], item["id"]), reverse=True)
+    return vehicles
+
+
+def fetch_active_vehicles_from_clients(redis_clients: list[Any]) -> list[dict[str, Any]]:
+    if not redis_clients:
+        return fetch_active_vehicles(None)
+
+    merged: dict[str, dict[str, Any]] = {}
+    service_vehicle_ids: set[str] = set()
+
+    for client in redis_clients:
+        try:
+            service_vehicle_ids.update(str(value) for value in client.zrevrange("service_vehicles:available", 0, -1))
+        except Exception:
+            pass
+
+        try:
+            for key in scan_keys(client, "vehicle:*:state"):
+                vehicle_id = key[len("vehicle:") : -len(":state")]
+                state = client.hgetall(key)
+                if not state:
+                    continue
+                ttl = normalize_int(client.ttl(key), -1)
+                record = {
+                    "id": vehicle_id,
+                    "kind": "sv" if vehicle_id in service_vehicle_ids else "vehicle",
+                    "speed": normalize_float(state.get("speed")),
+                    "pos_x": normalize_float(state.get("pos_x")),
+                    "pos_y": normalize_float(state.get("pos_y")),
+                    "heading": normalize_float(state.get("heading")),
+                    "cpu_available": normalize_float(state.get("cpu_available")),
+                    "cpu_utilization": normalize_float(state.get("cpu_utilization")),
+                    "mem_available": normalize_float(state.get("mem_available")),
+                    "mem_utilization": normalize_float(state.get("mem_utilization")),
+                    "queue_length": normalize_int(state.get("queue_length")),
+                    "processing_count": normalize_int(state.get("processing_count")),
+                    "last_update": normalize_float(state.get("last_update")),
+                    "ttl": ttl,
+                    "active": ttl != 0,
+                }
+
+                previous = merged.get(vehicle_id)
+                if previous is None or record["last_update"] >= previous["last_update"]:
+                    merged[vehicle_id] = record
+        except Exception:
+            continue
+
+    vehicles = list(merged.values())
     vehicles.sort(key=lambda item: (item["ttl"] == 0, item["last_update"], item["id"]), reverse=True)
     return vehicles
 
@@ -376,7 +446,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             json_response(self, {"task_types": TASK_TYPES})
             return
         if path == "/api/active-vehicles":
-            vehicles = fetch_active_vehicles(self._redis())
+            vehicles = fetch_active_vehicles_from_clients(self.server.redis_clients)  # type: ignore[attr-defined]
             json_response(self, {"vehicles": vehicles, "count": len(vehicles), "timestamp": time.time()})
             return
         if path.startswith("/api/task-results/"):
@@ -443,12 +513,15 @@ class DashboardServer(ThreadingHTTPServer):
     def __init__(self, server_address: tuple[str, int], RequestHandlerClass):
         super().__init__(server_address, RequestHandlerClass)
         self.redis_client = None
+        self.redis_clients: list[Any] = []
 
 
 def main() -> None:
-    redis_client = make_redis_client()
+    redis_clients = make_redis_clients()
+    redis_client = redis_clients[0] if redis_clients else make_redis_client()
     server = DashboardServer((DEFAULT_HOST, DEFAULT_PORT), DashboardRequestHandler)
     server.redis_client = redis_client
+    server.redis_clients = redis_clients
     print(f"New-dashboard API listening on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
     if redis_client is None:
         print("Redis client unavailable; serving demo-only fallback data.")
