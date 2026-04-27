@@ -833,21 +833,28 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
+function vehiclesFromEntities() {
+  return Object.values(entities)
+    .filter(e => e.kind === 'vehicle' || e.kind === 'sv')
+    .map(e => ({ id: e.id, kind: e.kind, speed: e.speed || 0, active: true }));
+}
+
 async function refreshActiveVehicles() {
   try {
     const payload = await fetchJson(`${API_BASE}/api/active-vehicles`);
-    activeVehicles = (payload.vehicles || []).filter(vehicle => vehicle.active !== false);
-    if (!selectedInjectionVehicleId || !activeVehicles.some(vehicle => vehicle.id === selectedInjectionVehicleId)) {
-      selectedInjectionVehicleId = activeVehicles[0]?.id ?? '';
-    }
-    renderInjectionPanel();
+    const apiVehicles = payload.vehicles || [];
+    // Use REST API vehicles when available; fall back to map entities.
+    activeVehicles = apiVehicles.length > 0 ? apiVehicles : vehiclesFromEntities();
   } catch (error) {
-    console.warn('Could not refresh active vehicles:', error.message);
-    if (!selectedInjectionVehicleId && Object.keys(entities).length > 0) {
-      selectedInjectionVehicleId = Object.values(entities).find(entity => entity.kind === 'vehicle')?.id ?? '';
-    }
-    renderInjectionPanel();
+    console.warn('Could not refresh active vehicles from API:', error.message);
+    // REST API unreachable — use whatever is already visible on the map.
+    activeVehicles = vehiclesFromEntities();
   }
+
+  if (!selectedInjectionVehicleId || !activeVehicles.some(v => v.id === selectedInjectionVehicleId)) {
+    selectedInjectionVehicleId = activeVehicles[0]?.id ?? '';
+  }
+  renderInjectionPanel();
 }
 
 async function refreshTaskSummary(taskId = currentSummaryTaskId) {
