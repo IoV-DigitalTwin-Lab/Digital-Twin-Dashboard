@@ -4,6 +4,7 @@
 ```
 convert_map.py   — one-time: converts erlangen.net.xml → map.geojson
 bridge.py        — runs alongside simulation: Redis → WebSocket
+dashboard_api.py — serves the HTML dashboard and the task injection API
 index.html       — the dashboard (open in browser)
 ```
 
@@ -65,20 +66,32 @@ pip install redis websockets
 python bridge.py
 ```
 
-## Step 4 — Serve and open the dashboard
+## Step 4 — Start the dashboard API server
 
 ```bash
-# Serve from the directory containing index.html and map.geojson
-cd /path/to/dashboard
-python -m http.server 8080
+pip install redis
+python dashboard_api.py
 ```
 
-Open http://localhost:8080 in a browser alongside QtEnv.
+This server listens on `http://localhost:8090` by default and exposes:
+
+- `GET /api/active-vehicles`
+- `GET /api/task-types`
+- `POST /api/inject-task`
+- `GET /api/task-results/<task_id>`
+
+## Step 5 — Open the dashboard
+
+Open `http://localhost:8090` in a browser.
+
+Keep the dashboard API and `bridge.py` running alongside the simulator.
 
 ## Notes
 
 - The dashboard auto-reconnects to the WebSocket if the bridge restarts.
 - Comm lines on the map appear/disappear automatically based on task state.
+- The new task injection panel keeps the vehicle dropdown live by polling the dashboard API.
+- The algorithm summary shows Random, Greedy Distance, Greedy Compute, and DDQN result cards for the selected injected task.
 - Clicking any vehicle/RSU marker on the map or any task in the sidebar
   updates the resource panel on the right.
 - The SUMO coordinate → lat/lon conversion in index.html uses the offset

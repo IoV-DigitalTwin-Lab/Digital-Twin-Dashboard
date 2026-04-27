@@ -50,6 +50,38 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
   border-top:1px solid #ece9e2;border-bottom:1px solid #ece9e2;flex-shrink:0}
 .task-resizer:hover{background:linear-gradient(to bottom,#efede8,#e5e1d8)}
 .selected-panel{border-top:1px solid #f0ede8;display:flex;flex-direction:column;flex:1;min-height:140px;overflow:hidden}
+.task-console{padding:12px;border-bottom:1px solid #f0ede8;background:linear-gradient(180deg,#fff, #fbfaf7)}
+.console-card{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;align-items:end}
+.console-card .field{display:flex;flex-direction:column;gap:4px}
+.console-card .field-full{grid-column:1 / -1}
+.console-label{font-size:10px;color:#8b8b88;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.console-select{width:100%;height:32px;padding:0 10px;border:1px solid #ddd8cf;border-radius:8px;background:#fff;color:#1a1a18;font-size:12px}
+.console-select:focus{outline:none;border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+.console-btn{height:34px;padding:0 12px;border:none;border-radius:8px;background:linear-gradient(135deg,#1d4ed8,#0f766e);color:#fff;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 6px 14px rgba(29,78,216,.18)}
+.console-btn:hover{filter:brightness(1.02)}
+.console-btn:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
+.console-note{display:flex;justify-content:space-between;gap:10px;margin-top:10px;font-size:11px;color:#73736f}
+.task-status-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#4338ca;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.algo-summary{padding:10px 12px 12px;border-bottom:1px solid #f0ede8;background:#fff}
+.algo-summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+.algo-summary-title{font-size:12px;font-weight:700;color:#1a1a18;line-height:1.3}
+.algo-summary-sub{font-size:10px;color:#8b8b88;word-break:break-all}
+.algo-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.algo-card{border:1px solid #e9e5dd;border-radius:10px;padding:9px 10px;background:linear-gradient(180deg,#fff,#fbfaf7);min-height:88px}
+.algo-card.success{border-color:#bbf7d0;background:linear-gradient(180deg,#f0fdf4,#fff)}
+.algo-card.failed{border-color:#fecaca;background:linear-gradient(180deg,#fef2f2,#fff)}
+.algo-card.running{border-color:#fde68a;background:linear-gradient(180deg,#fffbeb,#fff)}
+.algo-card.pending{border-color:#e5e7eb;background:linear-gradient(180deg,#fafafa,#fff)}
+.algo-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+.algo-name{font-size:11px;font-weight:700;color:#1a1a18}
+.algo-badge{font-size:9px;font-weight:700;padding:3px 7px;border-radius:999px;letter-spacing:.05em;text-transform:uppercase}
+.algo-badge.success{background:#dcfce7;color:#166534}
+.algo-badge.failed{background:#fee2e2;color:#991b1b}
+.algo-badge.running{background:#fef3c7;color:#92400e}
+.algo-badge.pending{background:#e5e7eb;color:#374151}
+.algo-stat{display:flex;justify-content:space-between;gap:10px;font-size:10px;margin-top:4px;color:#5b5b57}
+.algo-stat span:last-child{font-weight:700;color:#1a1a18;text-align:right}
+.algo-empty{font-size:11px;color:#8b8b88;line-height:1.45;padding:4px 0}
 
 /* ── Task items ───────────────────────────────────────────────────────────── */
 .task-item{padding:8px 12px;cursor:pointer;border-left:3px solid transparent;
@@ -147,6 +179,40 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
     <!-- Sidebar -->
     <div class="sidebar">
 
+      <div class="task-console">
+        <div class="sb-head" style="padding:0 0 8px;border-bottom:none">Task Injection</div>
+        <div class="console-card">
+          <div class="field">
+            <div class="console-label">Vehicle</div>
+            <select id="inject-vehicle-select" class="console-select"></select>
+          </div>
+          <div class="field">
+            <div class="console-label">Task Type</div>
+            <select id="inject-task-select" class="console-select"></select>
+          </div>
+          <div class="field field-full">
+            <button id="inject-task-btn" class="console-btn" type="button">Inject Task</button>
+          </div>
+        </div>
+        <div class="console-note">
+          <span id="inject-vehicle-count">0 active vehicles</span>
+          <span class="task-status-chip" id="inject-task-status">waiting</span>
+        </div>
+      </div>
+
+      <div class="algo-summary" id="algo-summary-panel">
+        <div class="algo-summary-head">
+          <div>
+            <div class="algo-summary-title" id="algo-summary-title">Algorithm Summary</div>
+            <div class="algo-summary-sub" id="algo-summary-sub">Inject a task to compare Random, Greedy Distance, Greedy Compute, and DDQN.</div>
+          </div>
+          <div class="task-status-chip" id="algo-summary-chip">idle</div>
+        </div>
+        <div id="algo-summary-grid" class="algo-grid">
+          <div class="algo-empty">No task selected yet.</div>
+        </div>
+      </div>
+
       <div class="sb-head" id="active-tasks-head">Active Tasks</div>
       <div class="task-list" id="task-list">
         <div style="padding:12px;font-size:11px;color:#aaa">Waiting for simulation data…</div>
@@ -211,6 +277,20 @@ const tasks      = {};     // task_id → task object
 const commLines  = {};     // task_id → { line, dot, timer }
 const markers    = {};     // id → Leaflet marker
 const markerVisual = {};   // id → { kind, sel }
+const API_BASE = window.location.origin;
+const DEFAULT_TASK_TYPES = [
+  { id: 'video_processing', name: 'Video Processing' },
+  { id: 'traffic_analytics', name: 'Traffic Analytics' },
+  { id: 'sensor_fusion', name: 'Sensor Fusion' },
+  { id: 'route_prediction', name: 'Route Prediction' },
+  { id: 'cooperative_awareness', name: 'Cooperative Awareness' },
+];
+const ALGORITHM_KEYS = [
+  { key: 'random', label: 'Random' },
+  { key: 'greedy_distance', label: 'Greedy Distance' },
+  { key: 'greedy_compute', label: 'Greedy Compute' },
+  { key: 'ddqn', label: 'DDQN' },
+];
 let   selectedId = null;
 let   sumoOffset = [0, 0];
 let   sumoBoundary = null; // [xmin, ymin, xmax, ymax]
@@ -218,6 +298,13 @@ let   geoBbox = null;      // [lat_min, lon_min, lat_max, lon_max]
 let   map, geojsonLayer;
 let   isResizingSidebar = false;
 let   isResizingTaskList = false;
+let   activeVehicles = [];
+let   taskTypes = [...DEFAULT_TASK_TYPES];
+let   selectedInjectionVehicleId = '';
+let   currentSummaryTaskId = '';
+let   activeVehiclesTimer = null;
+let   summaryTimer = null;
+const taskResultCache = {};
 
 function formatEntityLabel(kind, rawId) {
   const source = String(rawId ?? '').trim();
@@ -596,9 +683,10 @@ function renderTaskList() {
   list.innerHTML = sorted.map(t => {
     const label = STATE_LABELS[t.state] ?? t.state;
     const isLocal = t.state.startsWith('local');
+    const taskType = t.task_type_name ?? t.task_type ?? t.taskType ?? 'Task';
     const meta = isLocal
-      ? `${t.vehicle} · local`
-      : `${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}`;
+      ? `${taskType} · ${t.vehicle} · local`
+      : `${taskType} · ${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}`;
     const progress = t.progress != null
       ? `<div class="prog-wrap"><div class="prog-fill fill-${isLocal?'cpu':'mem'}"
            style="width:${Math.round(t.progress)}%"></div></div>`
@@ -616,9 +704,220 @@ function renderTaskList() {
 let selectedTaskId = null;
 function selectTask(id) {
   selectedTaskId = id;
+  currentSummaryTaskId = id;
   const t = tasks[id];
   if (t) selectEntity(t.vehicle);
   renderTaskList();
+  renderAlgorithmSummary(id);
+  refreshTaskSummary(id);
+}
+
+function normalizeTaskType(taskType) {
+  if (!taskType) return null;
+  return taskType.id ? taskType : { id: taskType, name: taskType };
+}
+
+function updateInjectStatus(text, tone = 'waiting') {
+  const status = document.getElementById('inject-task-status');
+  if (!status) return;
+  status.textContent = text;
+  status.style.background = tone === 'ok' ? '#dcfce7' : tone === 'error' ? '#fee2e2' : tone === 'running' ? '#fef3c7' : '#eef2ff';
+  status.style.color = tone === 'ok' ? '#166534' : tone === 'error' ? '#991b1b' : tone === 'running' ? '#92400e' : '#4338ca';
+}
+
+function updateSummaryChip(text, tone = 'waiting') {
+  const chip = document.getElementById('algo-summary-chip');
+  if (!chip) return;
+  chip.textContent = text;
+  chip.style.background = tone === 'ok' ? '#dcfce7' : tone === 'error' ? '#fee2e2' : tone === 'running' ? '#fef3c7' : '#e5e7eb';
+  chip.style.color = tone === 'ok' ? '#166534' : tone === 'error' ? '#991b1b' : tone === 'running' ? '#92400e' : '#374151';
+}
+
+function renderInjectionPanel() {
+  const vehicleSelect = document.getElementById('inject-vehicle-select');
+  const taskSelect = document.getElementById('inject-task-select');
+  const vehicleCount = document.getElementById('inject-vehicle-count');
+  const injectButton = document.getElementById('inject-task-btn');
+
+  if (vehicleCount) {
+    vehicleCount.textContent = `${activeVehicles.length} active vehicles`;
+  }
+
+  if (vehicleSelect) {
+    const previous = selectedInjectionVehicleId;
+    vehicleSelect.innerHTML = activeVehicles.length
+      ? activeVehicles.map(vehicle => {
+          const label = `${vehicle.id} · ${Math.round(vehicle.speed * 3.6)} km/h · ${vehicle.kind === 'sv' ? 'SV' : 'Vehicle'}`;
+          return `<option value="${vehicle.id}"${vehicle.id === previous ? ' selected' : ''}>${label}</option>`;
+        }).join('')
+      : '<option value="">No active vehicles</option>';
+
+    if (!activeVehicles.some(vehicle => vehicle.id === previous)) {
+      selectedInjectionVehicleId = activeVehicles[0]?.id ?? '';
+      vehicleSelect.value = selectedInjectionVehicleId;
+    }
+
+    vehicleSelect.onchange = () => {
+      selectedInjectionVehicleId = vehicleSelect.value;
+    };
+  }
+
+  if (taskSelect) {
+    taskSelect.innerHTML = taskTypes.map(taskType => `<option value="${taskType.id}">${taskType.name}</option>`).join('');
+    if (!taskSelect.value && taskTypes[0]) {
+      taskSelect.value = taskTypes[0].id;
+    }
+  }
+
+  if (injectButton) {
+    injectButton.disabled = !activeVehicles.length;
+    injectButton.onclick = injectTaskFromForm;
+  }
+}
+
+function renderAlgorithmSummary(taskId = currentSummaryTaskId) {
+  const grid = document.getElementById('algo-summary-grid');
+  const title = document.getElementById('algo-summary-title');
+  const sub = document.getElementById('algo-summary-sub');
+
+  if (!grid || !title || !sub) return;
+
+  if (!taskId) {
+    title.textContent = 'Algorithm Summary';
+    sub.textContent = 'Inject a task to compare Random, Greedy Distance, Greedy Compute, and DDQN.';
+    updateSummaryChip('idle');
+    grid.innerHTML = '<div class="algo-empty">No task selected yet.</div>';
+    return;
+  }
+
+  const task = tasks[taskId] ?? {};
+  const result = taskResultCache[taskId] ?? null;
+  const taskType = task.task_type_name ?? task.task_type ?? task.taskType ?? result?.task?.task_type ?? 'Task';
+  const vehicle = task.vehicle ?? result?.task?.vehicle_id ?? 'unknown vehicle';
+  const status = String(task.state ?? result?.task?.status ?? 'pending');
+
+  title.textContent = `${taskType} on ${vehicle}`;
+  sub.textContent = `Task ${taskId}`;
+  updateSummaryChip(status.includes('complete') ? 'done' : status.includes('fail') ? 'failed' : status.includes('process') ? 'running' : 'pending', status.includes('complete') ? 'ok' : status.includes('fail') ? 'error' : status.includes('process') ? 'running' : 'waiting');
+
+  const algorithms = result?.algorithms?.length ? result.algorithms : ALGORITHM_KEYS.map(algo => ({ ...algo, status: 'PENDING', latency_ms: null, energy_j: null, reason: 'waiting for simulation' }));
+
+  grid.innerHTML = algorithms.map(algo => {
+    const cardClass = String(algo.status || 'PENDING').toLowerCase();
+    const latency = algo.latency_ms == null ? '—' : `${Math.round(algo.latency_ms)} ms`;
+    const energy = algo.energy_j == null ? '—' : `${Number(algo.energy_j).toFixed(4)} J`;
+    const reason = algo.reason || '—';
+    return `<div class="algo-card ${cardClass}">
+      <div class="algo-head">
+        <div class="algo-name">${algo.label}</div>
+        <div class="algo-badge ${cardClass}">${algo.status || 'PENDING'}</div>
+      </div>
+      <div class="algo-stat"><span>Latency</span><span>${latency}</span></div>
+      <div class="algo-stat"><span>Energy</span><span>${energy}</span></div>
+      <div class="algo-stat"><span>Reason</span><span>${reason}</span></div>
+    </div>`;
+  }).join('');
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    ...options,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || response.statusText);
+  }
+
+  return response.json();
+}
+
+async function refreshActiveVehicles() {
+  try {
+    const payload = await fetchJson(`${API_BASE}/api/active-vehicles`);
+    activeVehicles = (payload.vehicles || []).filter(vehicle => vehicle.active !== false);
+    if (!selectedInjectionVehicleId || !activeVehicles.some(vehicle => vehicle.id === selectedInjectionVehicleId)) {
+      selectedInjectionVehicleId = activeVehicles[0]?.id ?? '';
+    }
+    renderInjectionPanel();
+  } catch (error) {
+    console.warn('Could not refresh active vehicles:', error.message);
+    if (!selectedInjectionVehicleId && Object.keys(entities).length > 0) {
+      selectedInjectionVehicleId = Object.values(entities).find(entity => entity.kind === 'vehicle')?.id ?? '';
+    }
+    renderInjectionPanel();
+  }
+}
+
+async function refreshTaskSummary(taskId = currentSummaryTaskId) {
+  if (!taskId) {
+    renderAlgorithmSummary();
+    return;
+  }
+
+  try {
+    const payload = await fetchJson(`${API_BASE}/api/task-results/${encodeURIComponent(taskId)}`);
+    taskResultCache[taskId] = payload;
+    renderAlgorithmSummary(taskId);
+  } catch (error) {
+    console.warn('Could not refresh task summary:', error.message);
+    renderAlgorithmSummary(taskId);
+  }
+}
+
+async function injectTaskFromForm() {
+  const vehicleSelect = document.getElementById('inject-vehicle-select');
+  const taskSelect = document.getElementById('inject-task-select');
+  const vehicleId = vehicleSelect?.value || selectedInjectionVehicleId || activeVehicles[0]?.id || '';
+  const taskType = taskSelect?.value || taskTypes[0]?.id || '';
+  const button = document.getElementById('inject-task-btn');
+
+  if (!vehicleId) {
+    updateInjectStatus('Select an active vehicle first', 'error');
+    return;
+  }
+
+  if (!taskType) {
+    updateInjectStatus('Select a task type first', 'error');
+    return;
+  }
+
+  if (button) button.disabled = true;
+  updateInjectStatus('injecting…', 'running');
+
+  try {
+    const payload = await fetchJson(`${API_BASE}/api/inject-task`, {
+      method: 'POST',
+      body: JSON.stringify({ vehicle_id: vehicleId, task_type: taskType }),
+    });
+
+    selectedInjectionVehicleId = vehicleId;
+    currentSummaryTaskId = payload.task_id;
+    tasks[payload.task_id] = {
+      task_id: payload.task_id,
+      vehicle: vehicleId,
+      rsu: payload.task_type?.rsu_id || 'RSU_0',
+      current_target: payload.task_type?.rsu_id || 'RSU_0',
+      state: 'generated',
+      progress: 0,
+      task_type: payload.task_type?.name || taskType,
+      task_type_name: payload.task_type?.name || taskType,
+      source: 'dashboard',
+    };
+
+    selectedTaskId = payload.task_id;
+    renderTaskList();
+    renderAlgorithmSummary(payload.task_id);
+    updateInjectStatus(`task ${payload.task_id} injected`, 'ok');
+    await refreshTaskSummary(payload.task_id);
+    setTimeout(() => refreshTaskSummary(payload.task_id), 1500);
+  } catch (error) {
+    console.error(error);
+    updateInjectStatus('injection failed', 'error');
+  } finally {
+    if (button) button.disabled = activeVehicles.length === 0;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -626,6 +925,9 @@ function selectTask(id) {
 ═══════════════════════════════════════════════════════════════════════════ */
 function selectEntity(id) {
   selectedId = id;
+  if (entities[id]?.kind === 'vehicle' || entities[id]?.kind === 'sv') {
+    selectedInjectionVehicleId = id;
+  }
   // Refresh all marker icons to show/clear selection ring
   Object.entries(entities).forEach(([eid, e]) => {
     if (markers[eid]) {
@@ -741,6 +1043,9 @@ function handleMsg(msg) {
       setTimeout(() => clearCommLine(t.task_id), 2000);
     }
     renderTaskList();
+    if (t.task_id === currentSummaryTaskId) {
+      renderAlgorithmSummary(t.task_id);
+    }
   }
 }
 
@@ -773,6 +1078,10 @@ function pad3(n) { return String(n).padStart(3, '0'); }
   await loadMapGeoJSON();
   setupSidebarResizer();
   setupTaskListResizer();
+  await refreshActiveVehicles();
+  await refreshTaskSummary();
+  activeVehiclesTimer = setInterval(refreshActiveVehicles, 3000);
+  summaryTimer = setInterval(() => refreshTaskSummary(), 2000);
   connectWS();
 })();
 </script>
