@@ -747,7 +747,7 @@ function renderInjectionPanel() {
     const previous = selectedInjectionVehicleId;
     vehicleSelect.innerHTML = activeVehicles.length
       ? activeVehicles.map(vehicle => {
-          const label = `${vehicle.id} · ${Math.round(vehicle.speed * 3.6)} km/h · ${vehicle.kind === 'sv' ? 'SV' : 'Vehicle'}`;
+          const label = vehicle.id;
           return `<option value="${vehicle.id}"${vehicle.id === previous ? ' selected' : ''}>${label}</option>`;
         }).join('')
       : '<option value="">No active vehicles</option>';
