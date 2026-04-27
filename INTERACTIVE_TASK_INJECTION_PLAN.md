@@ -11,7 +11,7 @@ This document outlines the implementation plan for an interactive task injection
 │                    Digital-Twin-Dashboard                       │
 │                     (Separate Server)                            │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  New-Dashboard (React/Vue Frontend)                      │   │
+│  │  New-Dashboard (HTML Frontend)                      │   │
 │  │  ├─ Vehicle Selection Dropdown (Dynamic)                 │   │
 │  │  ├─ Task Type Selection (Except Object Detection)        │   │
 │  │  ├─ Task Injection Button                                │   │
@@ -20,7 +20,7 @@ This document outlines the implementation plan for an interactive task injection
 │                 │ REST API Call                                   │
 │                 ▼                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Dashboard Backend API Server (Node.js/Flask)            │   │
+│  │  Dashboard Backend API Server (Python/Flask)            │   │
 │  │  ├─ POST /api/inject-task                                │   │
 │  │  ├─ GET /api/active-vehicles                             │   │
 │  │  ├─ GET /api/available-tasks                             │   │
