@@ -500,7 +500,9 @@ function sumoToLatLon(x, y) {
       y >= (-0.2 * height) && y <= (1.2 * height);
 
     const xr = width !== 0 ? (looksLocal ? (x / width) : ((x - xmin) / width)) : 0.5;
-    const yr = height !== 0 ? (looksLocal ? (y / height) : ((y - ymin) / height)) : 0.5;
+    // SUMO/OMNeT live entity coordinates are stored with the vertical axis
+    // mirrored relative to the GeoJSON map export, so invert Y here.
+    const yr = height !== 0 ? (looksLocal ? (1 - (y / height)) : (1 - ((y - ymin) / height))) : 0.5;
     const lon = lonMin + xr * (lonMax - lonMin);
     const lat = latMin + yr * (latMax - latMin);
     return [lat, lon];
