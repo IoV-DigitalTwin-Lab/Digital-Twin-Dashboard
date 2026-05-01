@@ -378,8 +378,9 @@ async def resolve_task_context(r: aioredis.Redis, task_id: str) -> tuple[str, st
     return vehicle_id, rsu_id, decision_type, target_id
 
 
-async def init_task_stream_offsets(redis_sources: list[aioredis.Redis]) -> None:
-    for idx, r in enumerate(redis_sources):
+async def init_task_stream_offsets(redis_sources: list[dict[str, Any]]) -> None:
+    for idx, source in enumerate(redis_sources):
+        r = source["redis"]
         # Keep one-entry lookback so the current latest event is replayed once after bridge start.
         latest_two = await r.xrevrange("task_lifecycle_events", max="+", min="-", count=2)
         if not latest_two:
@@ -390,7 +391,7 @@ async def init_task_stream_offsets(redis_sources: list[aioredis.Redis]) -> None:
             task_stream_last_id[idx] = latest_two[1][0]
 
 
-async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Read explicit lifecycle events stream from Redis and emit canonical task_event updates."""
     global task_stream_last_id
 
@@ -398,7 +399,9 @@ async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> N
         await init_task_stream_offsets(redis_sources)
 
     while True:
-        for idx, r in enumerate(redis_sources):
+        for idx, source in enumerate(redis_sources):
+            r = source["redis"]
+            source_db = source["db"]
             last_id = task_stream_last_id.get(idx, "0-0")
             rows = await r.xrange("task_lifecycle_events", min=f"({last_id}", max="+", count=200)
             if not rows:
@@ -420,6 +423,7 @@ async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> N
                     "rsu": rsu_id,
                     "state": mapped_state,
                     "event_type": event_type,
+                    "source_db": source_db,
                 }
 
                 edge_type = map_lifecycle_event_to_edge(event_type)
@@ -536,12 +540,13 @@ def candidate_entity_ids(raw_id: str) -> list[str]:
     return uniq
 
 
-async def secondary_cycle_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def secondary_cycle_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Publish dt2 predictions every cycle and attach SINR when matching q data exists."""
     while True:
         best: dict[str, Any] | None = None
 
-        for r in redis_sources:
+        for source in redis_sources:
+            r = source["redis"]
             pred_latest_keys = await scan_keys(r, "dt2:pred:*:latest", count=100)
 
             # Fallback path for deployments that publish cycle streams but no :latest hash.
@@ -683,14 +688,16 @@ async def secondary_cycle_poller(redis_sources: list[aioredis.Redis]) -> None:
         await asyncio.sleep(0.1)
 
 
-async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def position_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Poll merged vehicle/RSU positions across configured Redis DBs."""
     while True:
         snapshot: dict[str, dict[str, Any]] = {}
         freshness: dict[str, float] = {}
         service_vehicle_ids: set[str] = set()
 
-        for r in redis_sources:
+        for source in redis_sources:
+            r = source["redis"]
+            source_db = source["db"]
             for sv_id in await r.zrevrange("service_vehicles:available", 0, -1):
                 service_vehicle_ids.add(sv_id)
 
@@ -716,6 +723,7 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
                     "speed": to_float(data, "speed", 0.0),
                     # Keep payload key as "energy" for UI compatibility; value is battery percentage.
                     "energy": battery_pct,
+                    "source_db": source_db,
                 }
 
             rsu_keys = await scan_keys(r, "rsu:*:resources")
@@ -739,6 +747,7 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
                     "y": to_float(data, "pos_y", 0.0),
                     "speed": 0.0,
                     "energy": rsu_energy,
+                    "source_db": source_db,
                 }
 
         if snapshot:
@@ -746,13 +755,15 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
         await asyncio.sleep(0.1)
 
 
-async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def resource_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Poll merged CPU/memory/battery/queue every 500 ms."""
     while True:
         resources: dict[str, dict[str, float | int]] = {}
         freshness: dict[str, float] = {}
 
-        for r in redis_sources:
+        for source in redis_sources:
+            r = source["redis"]
+            source_db = source["db"]
             vehicle_keys = await scan_keys(r, "vehicle:*:state")
             for key in vehicle_keys:
                 eid = parse_middle_id(key, "vehicle", ":state")
@@ -781,6 +792,7 @@ async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
                     "queue": int(to_float(data, "queue_length", 0.0)),
                     "processing": int(to_float(data, "processing_count", 0.0)),
                     "sim_time": to_float(data, "last_update", 0.0),
+                    "source_db": source_db,
                 }
 
             rsu_keys = await scan_keys(r, "rsu:*:resources")
@@ -811,6 +823,7 @@ async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
                     "queue": int(to_float(data, "queue_length", 0.0)),
                     "processing": int(to_float(data, "processing_count", 0.0)),
                     "sim_time": to_float(data, "update_time", 0.0),
+                    "source_db": source_db,
                 }
 
         if resources:
@@ -818,14 +831,16 @@ async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
         await asyncio.sleep(0.5)
 
 
-async def task_state_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Poll task state hashes and emit synthetic task_event updates on change."""
     global task_cache, task_phase_cache
 
     while True:
         next_cache: dict[str, str] = {}
 
-        for r in redis_sources:
+        for source in redis_sources:
+            r = source["redis"]
+            source_db = source["db"]
             task_keys = await scan_keys(r, "task:*:state")
             for key in task_keys:
                 task_id = parse_middle_id(key, "task", ":state")
@@ -882,6 +897,7 @@ async def task_state_poller(redis_sources: list[aioredis.Redis]) -> None:
                         "latency": detail["latency"],
                         "energy": detail["energy"],
                         "reason": detail["reason"],
+                        "source_db": source_db,
                     }
 
                     if target_id:
@@ -927,7 +943,7 @@ async def ws_handler(ws: WebSocketServerProtocol) -> None:
 
 async def main() -> None:
     redis_sources = [
-        aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=db, decode_responses=True)
+        {"db": db, "redis": aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=db, decode_responses=True)}
         for db in REDIS_DBS
     ]
     log.info(f"Connected to Redis at {REDIS_HOST}:{REDIS_PORT}, dbs={REDIS_DBS}")
