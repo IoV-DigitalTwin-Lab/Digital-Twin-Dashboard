@@ -821,7 +821,7 @@ function renderTaskList() {
     return;
   }
 
-  const sorted = [...active, ...done];
+  const sorted = [...active, ...done].sort((a, b) => (b.event_order || 0) - (a.event_order || 0));
   list.innerHTML = sorted.map(t => {
     const label = STATE_LABELS[t.state] ?? t.state;
     const isLocal = t.state.startsWith('local');
