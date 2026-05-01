@@ -270,7 +270,7 @@ const RECONNECT_MS = 3000;
    COMM LINE COLORS per offload leg
 ═══════════════════════════════════════════════════════════════════════════ */
 const COMM_COLORS = {
-  metadata_sent:      '#dc2626',   // ① V → RSU (high-contrast red)
+  metadata_sent:      '#d97706',   // ① V → RSU (default orange; manual tasks override to red)
   decision_returned:  '#f59e0b',   // ② RSU → V (decision)
   task_data_sent:     '#7c3aed',   // ③ V → target (task payload)
   result_returning:   '#059669',   // ④ target → V (result)
@@ -661,7 +661,9 @@ function updateCommLine(task) {
 
   const status = String(task.status || '').toUpperCase();
   const lineKey = task.edge_type || task.line_kind || task.state;
-  const color = status.includes('FAIL') ? '#dc2626' : (COMM_COLORS[lineKey] ?? COMM_COLORS[task.state] ?? '#94a3b8');
+  let color = COMM_COLORS[lineKey] ?? COMM_COLORS[task.state] ?? '#94a3b8';
+  if (status.includes('FAIL')) color = '#dc2626';
+  else if (lineKey === 'metadata_sent' && task.manual) color = '#dc2626';
   const isActive = ['metadata_sent','decision_returned','task_data_sent',
                     'result_returning','remote_processing','local_processing']
                     .includes(task.state);
