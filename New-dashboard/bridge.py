@@ -212,6 +212,14 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
     et = (event_type or "").upper()
     if "METADATA_SENT" in et:
         return "metadata_sent"
+    if et in {"SV_TASK_RECEIVED"}:
+        return "task_data_sent"
+    if et in {"SV_PROCESSING_STARTED"}:
+        return "remote_processing"
+    if et in {"SV_RESULT_SENT"}:
+        return "result_returning"
+    if et in {"SV_COMPLETED_ON_TIME", "SV_COMPLETED_LATE"}:
+        return "complete"
     if et in {"DECISION_RECEIVED", "DECISION_OFFLOAD"}:
         return "decision_returned"
     if et == "TASK_OFFLOADING":
@@ -244,6 +252,12 @@ def map_lifecycle_event_to_edge(event_type: str) -> str | None:
     et = (event_type or "").upper()
     if "METADATA_SENT" in et:
         return "metadata_sent"
+    if et in {"SV_TASK_RECEIVED"}:
+        return "task_data_sent"
+    if et in {"SV_PROCESSING_STARTED"}:
+        return "remote_processing"
+    if et in {"SV_RESULT_SENT", "SV_COMPLETED_ON_TIME", "SV_COMPLETED_LATE"}:
+        return "result_returning"
     if et in {"DECISION_RECEIVED", "DECISION_OFFLOAD"}:
         return "decision_returned"
     if et == "TASK_OFFLOADING":
@@ -356,10 +370,11 @@ async def load_task_detail_metrics(r: aioredis.Redis, task_id: str, state: dict[
 async def resolve_task_context(r: aioredis.Redis, task_id: str) -> tuple[str, str, str, str]:
     state = await r.hgetall(f"task:{task_id}:state")
     req = await r.hgetall(f"task:{task_id}:request")
+    dec = await r.hgetall(f"task:{task_id}:decision")
     vehicle_id = state.get("vehicle_id") or req.get("vehicle_id") or ""
     rsu_id = req.get("rsu_id") or ""
-    decision_type = state.get("decision_type") or ""
-    target_id = state.get("target_id") or state.get("processor_id") or rsu_id
+    decision_type = state.get("decision_type") or dec.get("type") or ""
+    target_id = state.get("target_id") or state.get("processor_id") or dec.get("target") or rsu_id
     return vehicle_id, rsu_id, decision_type, target_id
 
 

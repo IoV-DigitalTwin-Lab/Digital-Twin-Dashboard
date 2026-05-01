@@ -232,6 +232,7 @@ def read_task_results(r: Any, task_id: str) -> dict[str, Any]:
 
     request = r.hgetall(f"task:{task_id}:request") or {}
     state = r.hgetall(f"task:{task_id}:state") or {}
+    decision = r.hgetall(f"task:{task_id}:decision") or {}
     result_hash = r.hgetall(f"task:{task_id}:results") or {}
     single_result = r.hgetall(f"task:{task_id}:result") or {}
     local_result = r.hgetall(f"task:{task_id}:local_result") or {}
@@ -244,6 +245,8 @@ def read_task_results(r: Any, task_id: str) -> dict[str, Any]:
         "deadline_seconds": normalize_float(request.get("deadline_seconds") or state.get("deadline")),
         "qos_value": normalize_float(request.get("qos_value")),
         "rsu_id": request.get("rsu_id") or DEFAULT_RSU_ID,
+        "decision_type": state.get("decision_type") or decision.get("type") or request.get("decision_type") or "",
+        "target_id": state.get("target_id") or state.get("processor_id") or decision.get("target") or request.get("target_id") or request.get("rsu_id") or "",
     }
 
     def find_field(prefixes: list[str], field: str) -> Any:
