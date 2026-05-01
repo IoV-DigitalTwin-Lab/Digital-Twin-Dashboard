@@ -203,7 +203,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
         <div class="algo-summary-head">
           <div>
             <div class="algo-summary-title" id="algo-summary-title">Algorithm Summary</div>
-            <div class="algo-summary-sub" id="algo-summary-sub">Inject a task to compare Random, Greedy Distance, Greedy Compute, and DDQN.</div>
+            <div class="algo-summary-sub" id="algo-summary-sub">Task results are shown for DDQN only.</div>
           </div>
           <div class="task-status-chip" id="algo-summary-chip">idle</div>
         </div>
@@ -296,9 +296,6 @@ const DEFAULT_TASK_TYPES = [
   { id: 'cooperative_awareness', name: 'Cooperative Awareness' },
 ];
 const ALGORITHM_KEYS = [
-  { key: 'random', label: 'Random' },
-  { key: 'greedy_distance', label: 'Greedy Distance' },
-  { key: 'greedy_compute', label: 'Greedy Compute' },
   { key: 'ddqn', label: 'DDQN' },
 ];
 let   selectedId = null;
@@ -831,7 +828,7 @@ function renderAlgorithmSummary(taskId = currentSummaryTaskId) {
 
   if (!taskId) {
     title.textContent = 'Algorithm Summary';
-    sub.textContent = 'Inject a task to compare Random, Greedy Distance, Greedy Compute, and DDQN.';
+    sub.textContent = 'Task results are shown for DDQN only.';
     updateSummaryChip('idle');
     grid.innerHTML = '<div class="algo-empty">No task selected yet.</div>';
     return;
