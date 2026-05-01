@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("bridge")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "16379"))
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DBS  = [int(v.strip()) for v in os.getenv("REDIS_DBS", "0,1,2").split(",") if v.strip()]
 WS_HOST    = "0.0.0.0"
 WS_PORT    = 8765
@@ -210,8 +210,7 @@ def build_phase_sequence(prev_phase: int | None, next_phase: int, remote: bool) 
 
 def map_lifecycle_event_to_state(event_type: str) -> str | None:
     et = (event_type or "").upper()
-
-    if et == "METADATA_SENT":
+    if "METADATA_SENT" in et:
         return "metadata_sent"
     if et in {"DECISION_RECEIVED", "DECISION_OFFLOAD"}:
         return "decision_returned"
@@ -239,6 +238,119 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
     if et in {"FAILED", "OFFLOAD_TIMEOUT_FAIL", "SV_DEADLINE_MISSED", "REJECTED"}:
         return "failed"
     return None
+
+
+def map_lifecycle_event_to_edge(event_type: str) -> str | None:
+    et = (event_type or "").upper()
+    if "METADATA_SENT" in et:
+        return "metadata_sent"
+    if et in {"DECISION_RECEIVED", "DECISION_OFFLOAD"}:
+        return "decision_returned"
+    if et == "TASK_OFFLOADING":
+        return "task_data_sent"
+    if et in {"SV_RESULT_SENT", "PROCESSING_COMPLETED"}:
+        return "result_returning"
+    if et in {"PROCESSING_STARTED"}:
+        return "remote_processing"
+    return None
+
+
+def classify_completion(status: str) -> str:
+    s = (status or "").upper()
+    if not s:
+        return "pending"
+    if s in {"COMPLETED_ON_TIME", "COMPLETED_LATE", "COMPLETED", "SUCCESS"}:
+        return "success"
+    if s in {"FAILED", "REJECTED", "EXPIRED", "TIMEOUT", "FAILURE"}:
+        return "failure"
+    return "pending"
+
+
+def first_result_hash(r: aioredis.Redis, task_id: str) -> str:
+    return f"task:{task_id}:result"
+
+
+def first_local_result_hash(task_id: str) -> str:
+    return f"task:{task_id}:local_result"
+
+
+def first_multi_result_hash(task_id: str) -> str:
+    return f"task:{task_id}:results"
+
+
+def extract_multi_agent_result(state: dict[str, str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, value in state.items():
+        if key.endswith("_status") and value:
+            result["status"] = value
+            prefix = key[:-7]
+            if f"{prefix}_latency" in state:
+                result["latency"] = state[f"{prefix}_latency"]
+            if f"{prefix}_energy" in state:
+                result["energy"] = state[f"{prefix}_energy"]
+            if f"{prefix}_reason" in state:
+                result["reason"] = state[f"{prefix}_reason"]
+            result["agent"] = prefix
+            break
+    return result
+
+
+async def load_task_detail_metrics(r: aioredis.Redis, task_id: str, state: dict[str, str], request: dict[str, str]) -> dict[str, Any]:
+    result = await r.hgetall(first_result_hash(r, task_id))
+    local_result = await r.hgetall(first_local_result_hash(task_id))
+    multi_result = await r.hgetall(first_multi_result_hash(task_id))
+
+    result_metrics = result if result else {}
+    if not result_metrics and local_result:
+        result_metrics = local_result
+    if not result_metrics and multi_result:
+        result_metrics = extract_multi_agent_result(multi_result)
+
+    status = (
+        state.get("status")
+        or result_metrics.get("status")
+        or local_result.get("status")
+        or multi_result.get("status")
+        or "PENDING"
+    )
+
+    latency = (
+        to_float(state, "total_latency", -1.0)
+        if state.get("total_latency") is not None else -1.0
+    )
+    if latency < 0:
+        latency = to_float(result_metrics, "latency", -1.0)
+    if latency < 0:
+        latency = to_float(local_result, "latency", -1.0)
+    if latency < 0:
+        latency = to_float(multi_result, "latency", -1.0)
+    if latency < 0 and state.get("completion_time") and state.get("created_time"):
+        latency = max(0.0, to_float(state, "completion_time", 0.0) - to_float(state, "created_time", 0.0))
+
+    energy = to_float(result_metrics, "energy", -1.0)
+    if energy < 0:
+        energy = to_float(local_result, "energy", -1.0)
+    if energy < 0:
+        energy = to_float(multi_result, "energy", -1.0)
+    if energy < 0:
+        energy = to_float(state, "energy", -1.0)
+
+    decision_type = state.get("decision_type") or request.get("decision_type") or result_metrics.get("decision_type", "")
+    target_id = state.get("target_id") or state.get("processor_id") or request.get("target_id") or request.get("rsu_id") or ""
+    processor_id = state.get("processor_id") or target_id or ""
+
+    return {
+        "status": status,
+        "status_class": classify_completion(status),
+        "latency": latency,
+        "energy": energy,
+        "reason": result_metrics.get("reason") or state.get("fail_reason") or local_result.get("reason") or multi_result.get("reason") or "NONE",
+        "decision_type": decision_type,
+        "target_id": target_id,
+        "processor_id": processor_id,
+        "completion_time": to_float(state, "completion_time", -1.0),
+        "processing_time": to_float(state, "processing_time", -1.0),
+    }
 
 
 async def resolve_task_context(r: aioredis.Redis, task_id: str) -> tuple[str, str, str, str]:
@@ -295,6 +407,10 @@ async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> N
                     "event_type": event_type,
                 }
 
+                edge_type = map_lifecycle_event_to_edge(event_type)
+                if edge_type:
+                    event["edge_type"] = edge_type
+
                 # For decision leg, show RSU->vehicle by setting target to RSU.
                 if mapped_state == "decision_returned":
                     event["current_target"] = rsu_id or target_id
@@ -306,6 +422,21 @@ async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> N
                     event["progress"] = 50
                 elif mapped_state in {"result_returning", "complete", "local_complete"}:
                     event["progress"] = 100
+
+                # Pass through common state fields if the stream writer included them.
+                for name in ("status", "decision_type", "target_id", "latency", "energy", "reason", "processor_id"):
+                    if name in fields:
+                        event[name] = fields[name]
+
+                # If lifecycle writer included a details JSON, parse for manual marker
+                details_raw = fields.get("details")
+                if details_raw:
+                    try:
+                        details_obj = json.loads(details_raw)
+                        if isinstance(details_obj, dict) and details_obj.get("manual"):
+                            event["manual"] = True
+                    except Exception:
+                        pass
 
                 await broadcast({"type": "task_event", "data": event})
 
@@ -694,8 +825,9 @@ async def task_state_poller(redis_sources: list[aioredis.Redis]) -> None:
 
                 vehicle_id = state.get("vehicle_id") or request.get("vehicle_id") or ""
                 rsu_id = request.get("rsu_id") or ""
-                decision_type = state.get("decision_type", "")
-                target_id = state.get("target_id") or state.get("processor_id") or rsu_id
+                detail = await load_task_detail_metrics(r, task_id, state, request)
+                decision_type = detail["decision_type"] or state.get("decision_type", "")
+                target_id = detail["target_id"] or state.get("target_id") or state.get("processor_id") or rsu_id
                 raw_status = state.get("status", "PENDING")
 
                 remote = is_remote(decision_type)
@@ -728,10 +860,25 @@ async def task_state_poller(redis_sources: list[aioredis.Redis]) -> None:
                         "vehicle": vehicle_id,
                         "rsu": rsu_id,
                         "state": mapped_state,
+                        "status": detail["status"],
+                        "decision_type": decision_type,
+                        "target_id": target_id,
+                        "processor_id": detail["processor_id"],
+                        "latency": detail["latency"],
+                        "energy": detail["energy"],
+                        "reason": detail["reason"],
                     }
 
                     if target_id:
                         event["current_target"] = target_id
+                    if mapped_state == "metadata_sent":
+                        event["edge_type"] = "metadata_sent"
+                    elif mapped_state == "decision_returned":
+                        event["edge_type"] = "decision_returned"
+                    elif mapped_state == "task_data_sent":
+                        event["edge_type"] = "task_data_sent"
+                    elif mapped_state in {"result_returning", "complete", "local_complete"}:
+                        event["edge_type"] = "result_returning"
 
                     if mapped_state == "remote_processing":
                         event["progress"] = 50

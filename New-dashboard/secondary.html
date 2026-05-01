@@ -377,7 +377,7 @@ function drawFutureForSelected() {
       fillOpacity: 0.95,
       opacity: 1,
     });
-    marker.on('click', () => selectPoint(point, sinr));
+    marker.on('click', (ev) => { L.DomEvent.stopPropagation(ev); selectPoint(point, sinr); });
     marker.addTo(futureLayer);
   });
 }

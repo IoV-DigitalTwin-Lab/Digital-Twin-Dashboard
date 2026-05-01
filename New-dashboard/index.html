@@ -121,6 +121,15 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 .info-cell{background:#f8f7f4;border-radius:6px;padding:6px 8px}
 .i-k{font-size:10px;color:#888;margin-bottom:2px}
 .i-v{font-size:12px;font-weight:600;color:#1a1a18}
+.task-detail-head{margin-top:12px;font-size:10px;font-weight:600;color:#888;letter-spacing:.06em;text-transform:uppercase}
+.task-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+.task-tag{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
+.pill{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:600;line-height:1.2}
+.pill-ok{background:#dcfce7;color:#14532d}
+.pill-bad{background:#fee2e2;color:#991b1b}
+.pill-warn{background:#fef3c7;color:#92400e}
+.pill-neo{background:#ede9fe;color:#4c1d95}
+.pill-blue{background:#dbeafe;color:#1e40af}
 
 /* ── Leaflet overrides ────────────────────────────────────────────────────── */
 .leaflet-container{background:#f0ede8}
@@ -140,7 +149,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 .entity-marker.sel{box-shadow:0 0 0 3px rgba(59,130,246,.35),0 1px 5px rgba(0,0,0,.25)}
 
 /* ── Comm lines on map ────────────────────────────────────────────────────── */
-/* drawn via Leaflet polylines with dashArray */
+/* packet-path lines use explicit phase colors to distinguish metadata, data,
+   decision, and result legs from ordinary motion traffic */
 
 /* ── State label tooltip on map ───────────────────────────────────────────── */
 .state-tip{background:#fff;border:1px solid #e5e4df;border-radius:4px;
@@ -241,6 +251,17 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
             <div class="info-cell"><div class="i-k">Position</div><div class="i-v" id="i-pos" style="font-size:10px">—</div></div>
             <div class="info-cell"><div class="i-k">Active comm</div><div class="i-v" id="i-comm" style="font-size:10px">—</div></div>
           </div>
+
+          <div class="task-detail-head">Selected task</div>
+          <div class="task-detail-grid">
+            <div class="info-cell"><div class="i-k">Task ID</div><div class="i-v" id="t-id">—</div></div>
+            <div class="info-cell"><div class="i-k">Status</div><div class="i-v" id="t-status">—</div></div>
+            <div class="info-cell"><div class="i-k">Decision</div><div class="i-v" id="t-decision">—</div></div>
+            <div class="info-cell"><div class="i-k">Target</div><div class="i-v" id="t-target">—</div></div>
+            <div class="info-cell"><div class="i-k">Latency</div><div class="i-v" id="t-latency">—</div></div>
+            <div class="info-cell"><div class="i-k">Energy</div><div class="i-v" id="t-energy">—</div></div>
+          </div>
+          <div class="task-tag" id="t-tags"></div>
         </div>
       </div>
 
@@ -260,12 +281,12 @@ const RECONNECT_MS = 3000;
    COMM LINE COLORS per offload leg
 ═══════════════════════════════════════════════════════════════════════════ */
 const COMM_COLORS = {
-  metadata_sent:      '#d97706',   // ① V → RSU
-  decision_returned:  '#f59e0b',   // ② RSU → V
-  task_data_sent:     '#7c3aed',   // ③ V → target
-  result_returning:   '#059669',   // ④ target → V
-  local_processing:   '#3b82f6',   // local
-  remote_processing:  '#a78bfa',   // processing at target (subtle)
+  metadata_sent:      '#dc2626',   // ① V → RSU (high-contrast red)
+  decision_returned:  '#f59e0b',   // ② RSU → V (decision)
+  task_data_sent:     '#7c3aed',   // ③ V → target (task payload)
+  result_returning:   '#059669',   // ④ target → V (result)
+  local_processing:   '#2563eb',   // local
+  remote_processing:  '#8b5cf6',   // processing at target
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -326,6 +347,35 @@ function formatEntityLabel(kind, rawId) {
   }
 
   return source.toUpperCase();
+}
+
+function formatNumber(value, digits = 2, suffix = '') {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${Number(value).toFixed(digits)}${suffix}`;
+}
+
+function formatTaskTarget(task) {
+  if (!task) return '—';
+  const decision = String(task.decision_type || '').toUpperCase();
+  const target = task.target_id || task.current_target || task.rsu || '—';
+  if (!decision) return String(target);
+  return `${decision} ${target}`;
+}
+
+function formatTaskStatus(task) {
+  if (!task) return '—';
+  const raw = String(task.status || task.state || '').toUpperCase();
+  if (!raw) return '—';
+  if (raw.includes('FAIL')) return 'Failure';
+  if (raw.includes('COMPLETE') || raw.includes('SUCCESS') || raw.includes('ON_TIME')) return 'Success';
+  return raw.replace(/_/g, ' ');
+}
+
+function getFocusedTask() {
+  if (selectedTaskId && tasks[selectedTaskId]) return tasks[selectedTaskId];
+  if (!selectedId) return null;
+  const related = Object.values(tasks).filter(t => t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId);
+  return related.sort((a, b) => (b.event_order || 0) - (a.event_order || 0))[0] ?? null;
 }
 
 function setSidebarWidth(px) {
@@ -581,13 +631,13 @@ function startCommAnimation(taskId, pts, color) {
 
   const line = L.polyline(pts, {
     color,
-    weight: 2.5,
+    weight: 3.5,
     dashArray: '7 6',
-    opacity: 0.9,
+    opacity: 0.95,
   }).addTo(map);
 
   const dot = L.circleMarker(pts[0], {
-    radius: 4,
+    radius: 5,
     color: '#ffffff',
     weight: 1,
     fillColor: color,
@@ -620,7 +670,9 @@ function updateCommLine(task) {
   const target = entities[task.current_target] ?? entities[task.rsu];
   if (!veh) return;
 
-  const color = COMM_COLORS[task.state] ?? '#94a3b8';
+  const status = String(task.status || '').toUpperCase();
+  const lineKey = task.edge_type || task.line_kind || task.state;
+  const color = status.includes('FAIL') ? '#dc2626' : (COMM_COLORS[lineKey] ?? COMM_COLORS[task.state] ?? '#94a3b8');
   const isActive = ['metadata_sent','decision_returned','task_data_sent',
                     'result_returning','remote_processing','local_processing']
                     .includes(task.state);
@@ -685,10 +737,17 @@ function renderTaskList() {
   list.innerHTML = sorted.map(t => {
     const label = STATE_LABELS[t.state] ?? t.state;
     const isLocal = t.state.startsWith('local');
+<<<<<<< HEAD
     const taskType = t.task_type_name ?? t.task_type ?? t.taskType ?? 'Task';
     const meta = isLocal
       ? `${taskType} · ${t.vehicle} · local`
       : `${taskType} · ${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}`;
+=======
+    const decision = t.decision_type ? ` · ${t.decision_type}${t.target_id ? ' ' + t.target_id : ''}` : '';
+    const meta = isLocal
+      ? `${t.vehicle} · local${decision}`
+      : `${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}${decision}`;
+>>>>>>> 1b3ea01 (feat: enhance task lifecycle visualization and UI updates in dashboard)
     const progress = t.progress != null
       ? `<div class="prog-wrap"><div class="prog-fill fill-${isLocal?'cpu':'mem'}"
            style="width:${Math.round(t.progress)}%"></div></div>`
@@ -944,10 +1003,11 @@ function selectEntity(id) {
 }
 
 function updateResPanel() {
-  if (!selectedId) return;
+  if (!selectedId && !selectedTaskId) return;
   const e = entities[selectedId];
   const r = resources[selectedId];
-  if (!e && !r) return;
+  const task = getFocusedTask();
+  if (!e && !r && !task) return;
 
   const inferredKind = e?.kind ?? (/^rsu[:_\s-]/i.test(selectedId) ? 'rsu' : /^sv[:_\s-]/i.test(selectedId) ? 'sv' : /^vehicle[:_\s-]/i.test(selectedId) ? 'vehicle' : 'entity');
   document.getElementById('res-title').textContent =
@@ -979,6 +1039,20 @@ function updateResPanel() {
 
   const activeLeg = relatedTasks.map(t => STATE_LABELS[t.state]).filter(Boolean).join(', ');
   document.getElementById('i-comm').textContent = activeLeg || '—';
+
+  document.getElementById('t-id').textContent = task?.task_id ?? '—';
+  document.getElementById('t-status').textContent = formatTaskStatus(task);
+  document.getElementById('t-decision').textContent = task?.decision_type ? String(task.decision_type).replace(/_/g, ' ') : '—';
+  document.getElementById('t-target').textContent = formatTaskTarget(task);
+  document.getElementById('t-latency').textContent = task?.latency != null ? formatNumber(task.latency, 3, ' s') : (task?.total_latency != null ? formatNumber(task.total_latency, 3, ' s') : '—');
+  document.getElementById('t-energy').textContent = task?.energy != null ? formatNumber(task.energy, 3, ' J') : '—';
+
+  const tags = [];
+  if (task?.status) tags.push(`<span class="pill ${String(task.status).includes('FAIL') ? 'pill-bad' : 'pill-ok'}">${String(task.status).replace(/_/g, ' ')}</span>`);
+  if (task?.decision_type) tags.push(`<span class="pill pill-neo">${String(task.decision_type).replace(/_/g, ' ')}</span>`);
+  if (task?.processor_id) tags.push(`<span class="pill pill-blue">Proc ${task.processor_id}</span>`);
+  if (task?.fail_reason && task.fail_reason !== 'NONE') tags.push(`<span class="pill pill-bad">${task.fail_reason}</span>`);
+  document.getElementById('t-tags').innerHTML = tags.length ? tags.join(' ') : '<span class="pill pill-warn">waiting for task details</span>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1040,7 +1114,7 @@ function handleMsg(msg) {
   else if (msg.type === 'task_event') {
     const t = msg.data;
     const prev = tasks[t.task_id] ?? {};
-    tasks[t.task_id] = { ...prev, ...t };
+    tasks[t.task_id] = { ...prev, ...t, event_order: (prev.event_order ?? 0) + 1 };
     if (map) updateCommLine(tasks[t.task_id]);
     if (t.state === 'complete' || t.state === 'local_complete' || t.state === 'failed') {
       setTimeout(() => clearCommLine(t.task_id), 2000);
