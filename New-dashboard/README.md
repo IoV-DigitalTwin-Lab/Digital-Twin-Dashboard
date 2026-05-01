@@ -95,7 +95,7 @@ Keep the dashboard API and `bridge.py` running alongside the simulator.
 - The dashboard auto-reconnects to the WebSocket if the bridge restarts.
 - Comm lines on the map appear/disappear automatically based on task state.
 - The new task injection panel keeps the vehicle dropdown live by polling the dashboard API.
-- The algorithm summary shows Random, Greedy Distance, Greedy Compute, and DDQN result cards for the selected injected task.
+- The algorithm summary shows DDQN result card for the selected injected task.
 - Clicking any vehicle/RSU marker on the map or any task in the sidebar
   updates the resource panel on the right.
 - The SUMO coordinate → lat/lon conversion in index.html uses the offset

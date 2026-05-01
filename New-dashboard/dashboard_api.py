@@ -43,9 +43,6 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_DBS = [int(value.strip()) for value in os.getenv("REDIS_DBS", "0,1,2").split(",") if value.strip()]
 
 ALGORITHMS = [
-    {"key": "random", "label": "Random"},
-    {"key": "greedy_distance", "label": "Greedy Distance"},
-    {"key": "greedy_compute", "label": "Greedy Compute"},
     {"key": "ddqn", "label": "DDQN"},
 ]
 
@@ -58,9 +55,6 @@ TASK_TYPES = [
 ]
 
 ALGORITHM_ALIASES = {
-    "random": ["random"],
-    "greedy_distance": ["greedy_distance", "greedy_dist", "greedy_distance_only"],
-    "greedy_compute": ["greedy_compute", "greedy_comp", "greedy_cpu"],
     "ddqn": ["ddqn", "dqn"],
 }
 
