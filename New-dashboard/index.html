@@ -190,23 +190,12 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
     <div class="sidebar">
 
       <div class="task-console">
-        <div class="sb-head" style="padding:0 0 8px;border-bottom:none">Task Injection</div>
+        <div class="sb-head" style="padding:0 0 8px;border-bottom:none">Task Injection (disabled)</div>
         <div class="console-card">
-          <div class="field">
-            <div class="console-label">Vehicle</div>
-            <select id="inject-vehicle-select" class="console-select"></select>
-          </div>
-          <div class="field">
-            <div class="console-label">Task Type</div>
-            <select id="inject-task-select" class="console-select"></select>
-          </div>
           <div class="field field-full">
-            <button id="inject-task-btn" class="console-btn" type="button">Inject Task</button>
+            <div class="console-label">Manual task creation is disabled in the dashboard.</div>
+            <div style="font-size:12px;color:#666;margin-top:6px">Tasks must be created from the simulation (OMNeT++ Qtenv). The dashboard observes task lifecycle events from Redis and does not perform injections.</div>
           </div>
-        </div>
-        <div class="console-note">
-          <span id="inject-vehicle-count">0 active vehicles</span>
-          <span class="task-status-chip" id="inject-task-status">waiting</span>
         </div>
       </div>
 
@@ -737,17 +726,11 @@ function renderTaskList() {
   list.innerHTML = sorted.map(t => {
     const label = STATE_LABELS[t.state] ?? t.state;
     const isLocal = t.state.startsWith('local');
-<<<<<<< HEAD
-    const taskType = t.task_type_name ?? t.task_type ?? t.taskType ?? 'Task';
-    const meta = isLocal
-      ? `${taskType} · ${t.vehicle} · local`
-      : `${taskType} · ${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}`;
-=======
+    const taskType = t.task_type_name ?? t.task_type ?? t.taskType ?? null;
     const decision = t.decision_type ? ` · ${t.decision_type}${t.target_id ? ' ' + t.target_id : ''}` : '';
     const meta = isLocal
-      ? `${t.vehicle} · local${decision}`
-      : `${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}${decision}`;
->>>>>>> 1b3ea01 (feat: enhance task lifecycle visualization and UI updates in dashboard)
+      ? `${taskType ? taskType + ' · ' : ''}${t.vehicle} · local${decision}`
+      : `${taskType ? taskType + ' · ' : ''}${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}${decision}`;
     const progress = t.progress != null
       ? `<div class="prog-wrap"><div class="prog-fill fill-${isLocal?'cpu':'mem'}"
            style="width:${Math.round(t.progress)}%"></div></div>`
