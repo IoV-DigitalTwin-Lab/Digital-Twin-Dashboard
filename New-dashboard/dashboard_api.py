@@ -40,7 +40,7 @@ REDIS_URL = os.getenv("REDIS_URL")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "16379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-REDIS_DBS = [int(value.strip()) for value in os.getenv("REDIS_DBS", "0,1,2").split(",") if value.strip()]
+REDIS_DBS = [int(value.strip()) for value in os.getenv("REDIS_DBS", "4,5,6").split(",") if value.strip()]
 
 ALGORITHMS = [
     {"key": "ddqn", "label": "DDQN"},

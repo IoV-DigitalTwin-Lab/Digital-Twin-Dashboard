@@ -32,7 +32,7 @@ log = logging.getLogger("bridge")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "16379"))
-REDIS_DBS  = [int(v.strip()) for v in os.getenv("REDIS_DBS", "0,1,2").split(",") if v.strip()]
+REDIS_DBS  = [int(v.strip()) for v in os.getenv("REDIS_DBS", "4,5,6").split(",") if v.strip()]
 WS_HOST    = "0.0.0.0"
 WS_PORT    = 8765
 
@@ -41,6 +41,8 @@ clients: set[WebSocketServerProtocol] = set()
 task_cache: dict[str, str] = {}
 task_phase_cache: dict[str, int] = {}
 task_stream_last_id: dict[int, str] = {}
+# Track task IDs confirmed as local (DECISION_LOCAL seen) across events.
+local_task_ids: set[str] = set()
 
 
 async def broadcast(msg: dict) -> None:
@@ -55,6 +57,18 @@ def parse_middle_id(key: str, prefix: str, suffix: str) -> str | None:
     if not key.startswith(token) or not key.endswith(suffix):
         return None
     return key[len(token): -len(suffix)]
+
+
+def extract_vehicle_id_from_entity(raw: str) -> str:
+    """'VEHICLE_17' → '17', 'VEHICLE17' → '17', others → ''."""
+    if not raw:
+        return ""
+    u = raw.upper()
+    if u.startswith("VEHICLE_"):
+        return raw[8:]
+    if u.startswith("VEHICLE"):
+        return raw[7:]
+    return ""
 
 
 def to_float(data: dict[str, str], key: str, default: float = 0.0) -> float:
@@ -100,13 +114,13 @@ def map_task_state(status: str, decision_type: str) -> str:
 
     if s in {"PENDING", "NEW", "CREATED"}:
         if d == "LOCAL":
-            return "local_queued"
+            return "generated"
         if d:
             return "decision_returned"
         return "generated"
 
     if s in {"OFFLOADED", "ASSIGNED", "ACCEPTED"}:
-        return "task_data_sent" if d and d != "LOCAL" else "local_queued"
+        return "task_data_sent" if d and d != "LOCAL" else "generated"
 
     if s in {"EXECUTING", "PROCESSING", "RUNNING"}:
         return "remote_processing" if d and d != "LOCAL" else "local_processing"
@@ -136,7 +150,7 @@ def phase_from_state(status: str, decision_type: str) -> int:
       5 result_returning
       6 complete
     Local flow:
-      10 local_queued
+      10 generated (local task created)
       11 local_processing
       12 local_complete
     """
@@ -170,7 +184,7 @@ def phase_from_state(status: str, decision_type: str) -> int:
 def phase_state_name(phase: int, remote: bool) -> str:
     if not remote:
         if phase <= 10:
-            return "local_queued"
+            return "generated"
         if phase == 11:
             return "local_processing"
         return "local_complete"
@@ -210,6 +224,12 @@ def build_phase_sequence(prev_phase: int | None, next_phase: int, remote: bool) 
 
 def map_lifecycle_event_to_state(event_type: str) -> str | None:
     et = (event_type or "").upper()
+    if et == "TASK_CREATED":
+        return "generated"
+    if et == "DECISION_LOCAL":
+        return "generated"  # local task confirmed; no animation
+    if et == "METADATA_SENT_MANUAL":
+        return "generated"  # no animation — treated as ordinary task start
     if "METADATA_SENT" in et:
         return "metadata_sent"
     if et in {"SV_TASK_RECEIVED"}:
@@ -220,8 +240,9 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
         return "result_returning"
     if et in {"SV_COMPLETED_ON_TIME", "SV_COMPLETED_LATE"}:
         return "complete"
-    if et in {"DECISION_RECEIVED", "DECISION_OFFLOAD"}:
+    if et == "DECISION_RECEIVED":
         return "decision_returned"
+    # DECISION_OFFLOAD is a vehicle-local execution event — no animation needed.
     if et == "TASK_OFFLOADING":
         return "task_data_sent"
     if et in {"SV_RESULT_SENT"}:
@@ -229,6 +250,8 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
     if et in {"PROCESSING_STARTED"}:
         return "remote_processing"
     if et in {"PROCESSING_COMPLETED"}:
+        return "result_returning"
+    if et == "TASK_RESULTS_RECEIVED":
         return "result_returning"
     if et in {
         "COMPLETED",
@@ -250,6 +273,10 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
 
 def map_lifecycle_event_to_edge(event_type: str) -> str | None:
     et = (event_type or "").upper()
+    if et in {"TASK_CREATED", "DECISION_LOCAL"}:
+        return None  # no animation for local task lifecycle markers
+    if et == "METADATA_SENT_MANUAL":
+        return None  # no comm-line animation for manual tasks
     if "METADATA_SENT" in et:
         return "metadata_sent"
     if et in {"SV_TASK_RECEIVED"}:
@@ -258,14 +285,17 @@ def map_lifecycle_event_to_edge(event_type: str) -> str | None:
         return "remote_processing"
     if et in {"SV_RESULT_SENT", "SV_COMPLETED_ON_TIME", "SV_COMPLETED_LATE"}:
         return "result_returning"
-    if et in {"DECISION_RECEIVED", "DECISION_OFFLOAD"}:
+    if et == "DECISION_RECEIVED":
         return "decision_returned"
+    # DECISION_OFFLOAD has no comm-line animation.
     if et == "TASK_OFFLOADING":
         return "task_data_sent"
     if et in {"SV_RESULT_SENT", "PROCESSING_COMPLETED"}:
         return "result_returning"
     if et in {"PROCESSING_STARTED"}:
         return "remote_processing"
+    if et == "TASK_RESULTS_RECEIVED":
+        return "result_returning"
     return None
 
 
@@ -378,8 +408,9 @@ async def resolve_task_context(r: aioredis.Redis, task_id: str) -> tuple[str, st
     return vehicle_id, rsu_id, decision_type, target_id
 
 
-async def init_task_stream_offsets(redis_sources: list[aioredis.Redis]) -> None:
-    for idx, r in enumerate(redis_sources):
+async def init_task_stream_offsets(redis_sources: list[dict[str, Any]]) -> None:
+    for idx, source in enumerate(redis_sources):
+        r = source["redis"]
         # Keep one-entry lookback so the current latest event is replayed once after bridge start.
         latest_two = await r.xrevrange("task_lifecycle_events", max="+", min="-", count=2)
         if not latest_two:
@@ -390,7 +421,7 @@ async def init_task_stream_offsets(redis_sources: list[aioredis.Redis]) -> None:
             task_stream_last_id[idx] = latest_two[1][0]
 
 
-async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Read explicit lifecycle events stream from Redis and emit canonical task_event updates."""
     global task_stream_last_id
 
@@ -398,7 +429,9 @@ async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> N
         await init_task_stream_offsets(redis_sources)
 
     while True:
-        for idx, r in enumerate(redis_sources):
+        for idx, source in enumerate(redis_sources):
+            r = source["redis"]
+            source_db = source["db"]
             last_id = task_stream_last_id.get(idx, "0-0")
             rows = await r.xrange("task_lifecycle_events", min=f"({last_id}", max="+", count=200)
             if not rows:
@@ -412,7 +445,30 @@ async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> N
                 if not task_id or not mapped_state:
                     continue
 
+                # Mark task as local when DECISION_LOCAL is seen so subsequent
+                # events (PROCESSING_STARTED, COMPLETE_ON_TIME) remap correctly
+                # even when the task has no task:state hash in Redis.
+                if event_type.upper() == "DECISION_LOCAL":
+                    local_task_ids.add(task_id)
+
                 vehicle_id, rsu_id, decision_type, target_id = await resolve_task_context(r, task_id)
+
+                # Fallback: extract vehicle_id from source_entity when the task
+                # has no task:state hash (common for local/vehicle-only tasks).
+                if not vehicle_id:
+                    vehicle_id = extract_vehicle_id_from_entity(fields.get("source_entity", ""))
+
+                is_local = task_id in local_task_ids or (decision_type or "").upper() == "LOCAL"
+                if is_local:
+                    decision_type = decision_type or "LOCAL"
+
+                # Remap ambiguous states based on local/remote decision type.
+                if is_local and mapped_state == "remote_processing":
+                    mapped_state = "local_processing"
+                elif is_local and mapped_state in {"complete", "result_returning"}:
+                    # PROCESSING_COMPLETED → result_returning and COMPLETE_ON_TIME → complete
+                    # both become local_complete for local tasks.
+                    mapped_state = "local_complete"
 
                 event: dict[str, Any] = {
                     "task_id": task_id,
@@ -420,21 +476,45 @@ async def task_lifecycle_stream_poller(redis_sources: list[aioredis.Redis]) -> N
                     "rsu": rsu_id,
                     "state": mapped_state,
                     "event_type": event_type,
+                    "source_db": source_db,
                 }
+                # Only include decision_type when it is known; omitting it for
+                # empty strings prevents overwriting the correct value that an
+                # earlier state-poller event already set on the task object.
+                if decision_type:
+                    event["decision_type"] = decision_type
 
-                edge_type = map_lifecycle_event_to_edge(event_type)
-                if edge_type:
-                    event["edge_type"] = edge_type
+                # Local tasks have no comm-line animation.
+                if not is_local:
+                    edge_type = map_lifecycle_event_to_edge(event_type)
+                    if edge_type:
+                        event["edge_type"] = edge_type
 
-                # For decision leg, show RSU->vehicle by setting target to RSU.
-                if mapped_state == "decision_returned":
-                    event["current_target"] = rsu_id or target_id
-                else:
-                    if target_id:
-                        event["current_target"] = target_id
+                    # Set current_target per event type so each animation leg uses the
+                    # correct endpoint. RSU and SV offloading are kept separate:
+                    #   metadata_sent   → always vehicle → RSU (never SV, even if DDQN picked SV)
+                    #   decision_returned → RSU → vehicle  (RSU delivers DDQN result)
+                    #   task_data_sent  → vehicle → DDQN target (RSU or SV)
+                    #   remote_processing → vehicle ↔ DDQN target (same processor)
+                    #   result_returning → DDQN target → vehicle
+                    if mapped_state == "generated":
+                        pass  # no animation, no endpoint
+                    elif mapped_state == "metadata_sent":
+                        event["current_target"] = rsu_id  # metadata always goes vehicle → RSU
+                    elif mapped_state == "decision_returned":
+                        event["current_target"] = rsu_id or target_id
+                    elif mapped_state in {"task_data_sent", "remote_processing", "result_returning"}:
+                        if target_id:
+                            event["current_target"] = target_id
+                        elif rsu_id:
+                            event["current_target"] = rsu_id
+                    else:
+                        if target_id:
+                            event["current_target"] = target_id
 
                 if mapped_state == "remote_processing":
                     event["progress"] = 50
+                    event["label"] = "remote processing"
                 elif mapped_state in {"result_returning", "complete", "local_complete"}:
                     event["progress"] = 100
 
@@ -536,12 +616,13 @@ def candidate_entity_ids(raw_id: str) -> list[str]:
     return uniq
 
 
-async def secondary_cycle_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def secondary_cycle_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Publish dt2 predictions every cycle and attach SINR when matching q data exists."""
     while True:
         best: dict[str, Any] | None = None
 
-        for r in redis_sources:
+        for source in redis_sources:
+            r = source["redis"]
             pred_latest_keys = await scan_keys(r, "dt2:pred:*:latest", count=100)
 
             # Fallback path for deployments that publish cycle streams but no :latest hash.
@@ -683,14 +764,16 @@ async def secondary_cycle_poller(redis_sources: list[aioredis.Redis]) -> None:
         await asyncio.sleep(0.1)
 
 
-async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def position_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Poll merged vehicle/RSU positions across configured Redis DBs."""
     while True:
         snapshot: dict[str, dict[str, Any]] = {}
         freshness: dict[str, float] = {}
         service_vehicle_ids: set[str] = set()
 
-        for r in redis_sources:
+        for source in redis_sources:
+            r = source["redis"]
+            source_db = source["db"]
             for sv_id in await r.zrevrange("service_vehicles:available", 0, -1):
                 service_vehicle_ids.add(sv_id)
 
@@ -716,6 +799,7 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
                     "speed": to_float(data, "speed", 0.0),
                     # Keep payload key as "energy" for UI compatibility; value is battery percentage.
                     "energy": battery_pct,
+                    "source_db": source_db,
                 }
 
             rsu_keys = await scan_keys(r, "rsu:*:resources")
@@ -739,6 +823,7 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
                     "y": to_float(data, "pos_y", 0.0),
                     "speed": 0.0,
                     "energy": rsu_energy,
+                    "source_db": source_db,
                 }
 
         if snapshot:
@@ -746,13 +831,15 @@ async def position_poller(redis_sources: list[aioredis.Redis]) -> None:
         await asyncio.sleep(0.1)
 
 
-async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def resource_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Poll merged CPU/memory/battery/queue every 500 ms."""
     while True:
         resources: dict[str, dict[str, float | int]] = {}
         freshness: dict[str, float] = {}
 
-        for r in redis_sources:
+        for source in redis_sources:
+            r = source["redis"]
+            source_db = source["db"]
             vehicle_keys = await scan_keys(r, "vehicle:*:state")
             for key in vehicle_keys:
                 eid = parse_middle_id(key, "vehicle", ":state")
@@ -781,6 +868,7 @@ async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
                     "queue": int(to_float(data, "queue_length", 0.0)),
                     "processing": int(to_float(data, "processing_count", 0.0)),
                     "sim_time": to_float(data, "last_update", 0.0),
+                    "source_db": source_db,
                 }
 
             rsu_keys = await scan_keys(r, "rsu:*:resources")
@@ -811,6 +899,7 @@ async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
                     "queue": int(to_float(data, "queue_length", 0.0)),
                     "processing": int(to_float(data, "processing_count", 0.0)),
                     "sim_time": to_float(data, "update_time", 0.0),
+                    "source_db": source_db,
                 }
 
         if resources:
@@ -818,14 +907,16 @@ async def resource_poller(redis_sources: list[aioredis.Redis]) -> None:
         await asyncio.sleep(0.5)
 
 
-async def task_state_poller(redis_sources: list[aioredis.Redis]) -> None:
+async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
     """Poll task state hashes and emit synthetic task_event updates on change."""
     global task_cache, task_phase_cache
 
     while True:
         next_cache: dict[str, str] = {}
 
-        for r in redis_sources:
+        for source in redis_sources:
+            r = source["redis"]
+            source_db = source["db"]
             task_keys = await scan_keys(r, "task:*:state")
             for key in task_keys:
                 task_id = parse_middle_id(key, "task", ":state")
@@ -882,6 +973,7 @@ async def task_state_poller(redis_sources: list[aioredis.Redis]) -> None:
                         "latency": detail["latency"],
                         "energy": detail["energy"],
                         "reason": detail["reason"],
+                        "source_db": source_db,
                     }
 
                     if target_id:
@@ -927,7 +1019,7 @@ async def ws_handler(ws: WebSocketServerProtocol) -> None:
 
 async def main() -> None:
     redis_sources = [
-        aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=db, decode_responses=True)
+        {"db": db, "redis": aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=db, decode_responses=True)}
         for db in REDIS_DBS
     ]
     log.info(f"Connected to Redis at {REDIS_HOST}:{REDIS_PORT}, dbs={REDIS_DBS}")
