@@ -32,7 +32,7 @@ log = logging.getLogger("bridge")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "16379"))
-REDIS_DBS  = [int(v.strip()) for v in os.getenv("REDIS_DBS", "0,1,2").split(",") if v.strip()]
+REDIS_DBS  = [int(v.strip()) for v in os.getenv("REDIS_DBS", "4,5,6").split(",") if v.strip()]
 WS_HOST    = "0.0.0.0"
 WS_PORT    = 8765
 

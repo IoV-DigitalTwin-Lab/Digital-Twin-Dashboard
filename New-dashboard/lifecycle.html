@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>IoV Digital Twin — Task Lifecycle Story</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg-top:#f6f4ee;
+  --bg-mid:#f0ede5;
+  --bg-bottom:#e9e4d8;
+  --ink:#161612;
+  --muted:#6b6b63;
+  --panel:#ffffff;
+  --panel-edge:#e5e0d6;
+  --accent:#2563eb;
+  --accent-2:#f59e0b;
+  --accent-3:#059669;
+  --danger:#dc2626;
+  --shadow:0 18px 40px rgba(24, 24, 20, 0.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'Space Grotesk', sans-serif;color:var(--ink)}
+body{background:linear-gradient(180deg,var(--bg-top),var(--bg-mid) 45%,var(--bg-bottom));}
+
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #e6e0d4;background:rgba(255,255,255,0.86);backdrop-filter:blur(6px);position:sticky;top:0;z-index:10}
+.title{display:flex;align-items:center;gap:12px;font-size:16px;font-weight:700}
+.pulse{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 6px rgba(34,197,94,0.12);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(0.85);opacity:0.9}50%{transform:scale(1.15);opacity:0.45}}
+
+.toolbar{display:flex;align-items:center;gap:12px}
+.badge{font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:#fde68a;color:#7c2d12}
+.filter{height:30px;border:1px solid #d9d1c6;border-radius:999px;padding:0 12px;font-weight:600;font-size:11px;background:#fff}
+.filter:focus{outline:none;border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
+.link{font-size:11px;font-weight:700;text-decoration:none;color:#1e3a8a;background:#e0e7ff;border:1px solid #c7d2fe;border-radius:999px;padding:6px 12px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px;padding:20px;max-width:1400px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--panel-edge);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.card::after{content:'';position:absolute;right:-40px;top:-40px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,rgba(37,99,235,0.12),transparent 70%);}
+
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.card-title{font-size:14px;font-weight:700}
+.card-sub{font-size:11px;color:var(--muted)}
+.meta{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;background:#eef2ff;color:#3730a3}
+.chip.success{background:#dcfce7;color:#166534}
+.chip.fail{background:#fee2e2;color:#991b1b}
+
+.rail{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px}
+.step{min-width:88px;flex:1;border-radius:12px;border:1px dashed #e2ddd2;background:#faf8f3;padding:8px 10px;text-align:center;font-size:10px;font-weight:700;letter-spacing:0.02em;opacity:0.35;transform:translateY(8px);transition:all 0.35s ease}
+.step.done{opacity:0.95;transform:translateY(0);border-style:solid;background:#ecfdf3;color:#14532d}
+.step.current{opacity:1;transform:translateY(0);border-style:solid;background:#fff7ed;color:#9a3412;box-shadow:0 8px 18px rgba(245,158,11,0.2)}
+.step.fail{opacity:1;transform:translateY(0);border-style:solid;background:#fef2f2;color:#991b1b}
+.step .label{display:block;font-size:10px}
+
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%}
+.legend .i-done{background:#22c55e}
+.legend .i-current{background:#f59e0b}
+.legend .i-fail{background:#dc2626}
+
+.empty{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px}
+
+@media (max-width:720px){
+  .grid{padding:14px}
+  .card{padding:14px}
+  .rail{gap:4px}
+  .step{min-width:72px}
+}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="title">
+      <span class="pulse"></span>
+      Task Lifecycle Storyboard
+    </div>
+    <div class="toolbar">
+      <span class="badge" id="conn-badge">connecting...</span>
+      <select id="rsu-filter" class="filter" title="Filter by RSU">
+        <option value="ALL">All RSUs</option>
+      </select>
+      <a class="link" href="index.html">Back to Main Dashboard</a>
+    </div>
+  </div>
+
+  <div class="grid" id="task-grid">
+    <div class="empty" id="empty-state">Waiting for task events...</div>
+  </div>
+
+  <div class="legend" style="padding:0 20px 22px">
+    <span><i class="i-done"></i> completed step</span>
+    <span><i class="i-current"></i> current step</span>
+    <span><i class="i-fail"></i> failed</span>
+  </div>
+
+<script>
+const WS_URL = 'ws://localhost:8765';
+const STORY_STEPS = [
+  { key: 'generated', label: 'Task Created' },
+  { key: 'metadata_sent', label: 'Metadata Sent' },
+  { key: 'decision_returned', label: 'Decision' },
+  { key: 'task_data_sent', label: 'Task Data' },
+  { key: 'remote_processing', label: 'Processing' },
+  { key: 'result_returning', label: 'Result Back' },
+  { key: 'complete', label: 'Complete' },
+];
+const LOCAL_STEPS = [
+  { key: 'local_queued', label: 'Local Queued' },
+  { key: 'local_processing', label: 'Local Processing' },
+  { key: 'local_complete', label: 'Local Complete' },
+];
+const DEFAULT_RSU_IDS = ['RSU_0', 'RSU_1', 'RSU_2'];
+const RSU_DB_OVERRIDES = { RSU_0: 0, RSU_1: 1, RSU_2: 2 };
+let selectedRsuFilter = 'ALL';
+let ws;
+let tasks = {};
+
+function rsuIdToDb(rsuId) {
+  if (!rsuId) return null;
+  if (RSU_DB_OVERRIDES[rsuId] != null) return RSU_DB_OVERRIDES[rsuId];
+  const match = String(rsuId).match(/(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function taskMatchesFilter(task) {
+  if (!task) return false;
+  if (!selectedRsuFilter || selectedRsuFilter === 'ALL') return true;
+  const selectedDb = rsuIdToDb(selectedRsuFilter);
+  if (selectedDb == null) return true;
+  if (task.source_db != null) return Number(task.source_db) === selectedDb;
+  if (task.rsu) return rsuIdToDb(task.rsu) === selectedDb;
+  return false;
+}
+
+function renderRsuFilterOptions() {
+  const select = document.getElementById('rsu-filter');
+  if (!select) return;
+  const seen = new Set(DEFAULT_RSU_IDS);
+  Object.values(tasks).forEach((task) => {
+    if (task?.rsu) seen.add(String(task.rsu));
+  });
+  const rsuIds = Array.from(seen).sort((a, b) => a.localeCompare(b));
+  select.innerHTML = [
+    '<option value="ALL">All RSUs</option>',
+    ...rsuIds.map((rsuId) => `<option value="${rsuId}">${rsuId}</option>`),
+  ].join('');
+  select.value = rsuIds.includes(selectedRsuFilter) ? selectedRsuFilter : 'ALL';
+  selectedRsuFilter = select.value;
+}
+
+function stateIndex(state, flow) {
+  const steps = flow === 'local' ? LOCAL_STEPS : STORY_STEPS;
+  const idx = steps.findIndex(step => step.key === state);
+  return idx >= 0 ? idx : 0;
+}
+
+function getFlow(task) {
+  const decision = String(task.decision_type || '').toUpperCase();
+  if (!decision || decision === 'LOCAL') return 'local';
+  return 'remote';
+}
+
+function renderTasks() {
+  const grid = document.getElementById('task-grid');
+  const empty = document.getElementById('empty-state');
+  if (!grid) return;
+
+  const list = Object.values(tasks)
+    .filter(taskMatchesFilter)
+    .sort((a, b) => (b.event_order || 0) - (a.event_order || 0))
+    .slice(0, 12);
+
+  if (!list.length) {
+    grid.innerHTML = '';
+    if (empty) grid.appendChild(empty);
+    return;
+  }
+
+  grid.innerHTML = list.map((task) => {
+    const flow = getFlow(task);
+    const steps = flow === 'local' ? LOCAL_STEPS : STORY_STEPS;
+    const currentIndex = stateIndex(task.state, flow);
+    const status = String(task.status || task.state || '').toUpperCase();
+    const failed = status.includes('FAIL') || task.state === 'failed';
+    const chipClass = failed ? 'fail' : (task.state === 'complete' || task.state === 'local_complete') ? 'success' : '';
+
+    const rail = steps.map((step, idx) => {
+      let cls = 'step';
+      if (failed && idx === currentIndex) cls += ' fail';
+      else if (idx < currentIndex) cls += ' done';
+      else if (idx === currentIndex) cls += ' current';
+      return `<div class="${cls}"><span class="label">${step.label}</span></div>`;
+    }).join('');
+
+    const subtitle = `${task.vehicle || 'vehicle'} → ${task.rsu || task.current_target || 'RSU'}${task.target_id ? ' → ' + task.target_id : ''}`;
+    const stateLabel = String(task.state || '').replace(/_/g, ' ');
+
+    return `
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Task ${task.task_id}</div>
+            <div class="card-sub">${subtitle}</div>
+          </div>
+          <div class="meta">
+            <span class="chip ${chipClass}">${stateLabel || 'pending'}</span>
+            ${task.decision_type ? `<span class="chip">${task.decision_type}</span>` : ''}
+          </div>
+        </div>
+        <div class="rail">
+          ${rail}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function setBadge(text, ok) {
+  const badge = document.getElementById('conn-badge');
+  if (!badge) return;
+  badge.textContent = text;
+  badge.style.background = ok ? '#dcfce7' : '#fde68a';
+  badge.style.color = ok ? '#166534' : '#7c2d12';
+}
+
+function connectWs() {
+  setBadge('connecting...', false);
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => setBadge('live', true);
+  ws.onerror = () => ws.close();
+  ws.onclose = () => setBadge('reconnecting...', false);
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch { return; }
+    if (msg.type !== 'task_event') return;
+    const t = msg.data || {};
+    const prev = tasks[t.task_id] || {};
+    tasks[t.task_id] = { ...prev, ...t, event_order: (prev.event_order || 0) + 1 };
+    renderRsuFilterOptions();
+    renderTasks();
+  };
+}
+
+(function init(){
+  renderRsuFilterOptions();
+  const filter = document.getElementById('rsu-filter');
+  if (filter) {
+    filter.addEventListener('change', (ev) => {
+      selectedRsuFilter = ev.target.value || 'ALL';
+      renderTasks();
+    });
+  }
+  connectWs();
+})();
+</script>
+</body>
+</html>
