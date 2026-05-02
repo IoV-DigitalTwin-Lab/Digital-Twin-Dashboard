@@ -100,13 +100,13 @@ def map_task_state(status: str, decision_type: str) -> str:
 
     if s in {"PENDING", "NEW", "CREATED"}:
         if d == "LOCAL":
-            return "local_queued"
+            return "generated"
         if d:
             return "decision_returned"
         return "generated"
 
     if s in {"OFFLOADED", "ASSIGNED", "ACCEPTED"}:
-        return "task_data_sent" if d and d != "LOCAL" else "local_queued"
+        return "task_data_sent" if d and d != "LOCAL" else "generated"
 
     if s in {"EXECUTING", "PROCESSING", "RUNNING"}:
         return "remote_processing" if d and d != "LOCAL" else "local_processing"
@@ -136,7 +136,7 @@ def phase_from_state(status: str, decision_type: str) -> int:
       5 result_returning
       6 complete
     Local flow:
-      10 local_queued
+      10 generated (local task created)
       11 local_processing
       12 local_complete
     """
@@ -170,7 +170,7 @@ def phase_from_state(status: str, decision_type: str) -> int:
 def phase_state_name(phase: int, remote: bool) -> str:
     if not remote:
         if phase <= 10:
-            return "local_queued"
+            return "generated"
         if phase == 11:
             return "local_processing"
         return "local_complete"
@@ -210,6 +210,10 @@ def build_phase_sequence(prev_phase: int | None, next_phase: int, remote: bool) 
 
 def map_lifecycle_event_to_state(event_type: str) -> str | None:
     et = (event_type or "").upper()
+    if et == "TASK_CREATED":
+        return "generated"
+    if et == "DECISION_LOCAL":
+        return "generated"  # local task confirmed; no animation
     if et == "METADATA_SENT_MANUAL":
         return "generated"  # no animation — treated as ordinary task start
     if "METADATA_SENT" in et:
@@ -255,6 +259,8 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
 
 def map_lifecycle_event_to_edge(event_type: str) -> str | None:
     et = (event_type or "").upper()
+    if et in {"TASK_CREATED", "DECISION_LOCAL"}:
+        return None  # no animation for local task lifecycle markers
     if et == "METADATA_SENT_MANUAL":
         return None  # no comm-line animation for manual tasks
     if "METADATA_SENT" in et:
@@ -426,6 +432,13 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                     continue
 
                 vehicle_id, rsu_id, decision_type, target_id = await resolve_task_context(r, task_id)
+                is_local = (decision_type or "").upper() == "LOCAL"
+
+                # Remap ambiguous states based on local/remote decision type.
+                if is_local and mapped_state == "remote_processing":
+                    mapped_state = "local_processing"
+                elif is_local and mapped_state == "complete":
+                    mapped_state = "local_complete"
 
                 event: dict[str, Any] = {
                     "task_id": task_id,
@@ -434,34 +447,36 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                     "state": mapped_state,
                     "event_type": event_type,
                     "source_db": source_db,
+                    "decision_type": decision_type,
                 }
 
-                edge_type = map_lifecycle_event_to_edge(event_type)
-                if edge_type:
-                    event["edge_type"] = edge_type
+                # Local tasks have no comm-line animation.
+                if not is_local:
+                    edge_type = map_lifecycle_event_to_edge(event_type)
+                    if edge_type:
+                        event["edge_type"] = edge_type
 
-                # Set current_target per event type so each animation leg uses the
-                # correct endpoint. RSU and SV offloading are kept separate:
-                #   metadata_sent   → always vehicle → RSU (never SV, even if DDQN picked SV)
-                #   decision_returned → RSU → vehicle  (RSU delivers DDQN result)
-                #   task_data_sent  → vehicle → DDQN target (RSU or SV)
-                #   remote_processing → vehicle ↔ DDQN target (same processor)
-                #   result_returning → DDQN target → vehicle
-                if mapped_state == "generated":
-                    pass  # METADATA_SENT_MANUAL: no animation, no endpoint
-                elif mapped_state == "metadata_sent":
-                    event["current_target"] = rsu_id  # metadata always goes vehicle → RSU
-                elif mapped_state == "decision_returned":
-                    event["current_target"] = rsu_id or target_id  # RSU sends decision back
-                elif mapped_state in {"task_data_sent", "remote_processing", "result_returning"}:
-                    # Use the DDQN decision target (RSU index or SV index) as processor endpoint.
-                    if target_id:
-                        event["current_target"] = target_id
-                    elif rsu_id:
-                        event["current_target"] = rsu_id
-                else:
-                    if target_id:
-                        event["current_target"] = target_id
+                    # Set current_target per event type so each animation leg uses the
+                    # correct endpoint. RSU and SV offloading are kept separate:
+                    #   metadata_sent   → always vehicle → RSU (never SV, even if DDQN picked SV)
+                    #   decision_returned → RSU → vehicle  (RSU delivers DDQN result)
+                    #   task_data_sent  → vehicle → DDQN target (RSU or SV)
+                    #   remote_processing → vehicle ↔ DDQN target (same processor)
+                    #   result_returning → DDQN target → vehicle
+                    if mapped_state == "generated":
+                        pass  # no animation, no endpoint
+                    elif mapped_state == "metadata_sent":
+                        event["current_target"] = rsu_id  # metadata always goes vehicle → RSU
+                    elif mapped_state == "decision_returned":
+                        event["current_target"] = rsu_id or target_id
+                    elif mapped_state in {"task_data_sent", "remote_processing", "result_returning"}:
+                        if target_id:
+                            event["current_target"] = target_id
+                        elif rsu_id:
+                            event["current_target"] = rsu_id
+                    else:
+                        if target_id:
+                            event["current_target"] = target_id
 
                 if mapped_state == "remote_processing":
                     event["progress"] = 50
