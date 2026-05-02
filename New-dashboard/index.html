@@ -158,6 +158,10 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 .state-tip{background:#fff;border:1px solid #e5e4df;border-radius:4px;
   font-size:10px;padding:2px 6px;font-weight:500;white-space:nowrap;
   box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.comm-label{background:rgba(0,0,0,.68)!important;color:#fff!important;
+  border:none!important;border-radius:4px!important;font-size:10px!important;
+  padding:2px 7px!important;font-weight:600!important;white-space:nowrap!important;
+  box-shadow:0 1px 4px rgba(0,0,0,.2)!important;pointer-events:none!important}
 </style>
 </head>
 <body>
@@ -708,7 +712,7 @@ function stopCommAnimation(taskId) {
   delete commLines[taskId];
 }
 
-function startCommAnimation(taskId, pts, color) {
+function startCommAnimation(taskId, pts, color, label) {
   stopCommAnimation(taskId);
   if (!pts || pts.length < 2) return;
 
@@ -718,6 +722,10 @@ function startCommAnimation(taskId, pts, color) {
     dashArray: '7 6',
     opacity: 0.95,
   }).addTo(map);
+
+  if (label) {
+    line.bindTooltip(label, { permanent: true, direction: 'center', className: 'comm-label' });
+  }
 
   const dot = L.circleMarker(pts[0], {
     radius: 5,
@@ -779,7 +787,7 @@ function updateCommLine(task) {
               task.state === 'result_returning'   ? [to, from] :
               [from, to];
 
-  startCommAnimation(task.task_id, pts, color);
+  startCommAnimation(task.task_id, pts, color, task.label || null);
 }
 
 function clearCommLine(taskId) {
