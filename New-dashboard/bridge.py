@@ -380,7 +380,7 @@ async def load_task_detail_metrics(r: aioredis.Redis, task_id: str, state: dict[
         energy = to_float(state, "energy", -1.0)
 
     decision_type = state.get("decision_type") or request.get("decision_type") or result_metrics.get("decision_type", "")
-    target_id = state.get("target_id") or state.get("processor_id") or request.get("target_id") or request.get("rsu_id") or ""
+    target_id = state.get("target_id") or state.get("processor_id") or request.get("target_id") or ""
     processor_id = state.get("processor_id") or target_id or ""
 
     return {
@@ -936,10 +936,9 @@ async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
                 rsu_id = request.get("rsu_id") or ""
                 detail = await load_task_detail_metrics(r, task_id, state, request)
                 decision_type = detail["decision_type"] or state.get("decision_type", "")
-                target_id = detail["target_id"] or state.get("target_id") or state.get("processor_id") or rsu_id
-                raw_status = state.get("status", "PENDING")
-
                 remote = is_remote(decision_type)
+                target_id = detail["target_id"] or state.get("target_id") or state.get("processor_id") or (rsu_id if remote else "")
+                raw_status = state.get("status", "PENDING")
                 next_phase = phase_from_state(raw_status, decision_type)
                 signature = "|".join([
                     raw_status,

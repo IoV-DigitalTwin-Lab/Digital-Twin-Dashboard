@@ -359,6 +359,7 @@ function formatNumber(value, digits = 2, suffix = '') {
 function formatTaskTarget(task) {
   if (!task) return '—';
   const decision = String(task.decision_type || '').toUpperCase();
+  if (decision === 'LOCAL') return 'local (vehicle)';
   const target = task.target_id || task.current_target || task.rsu || '—';
   if (!decision) return String(target);
   return `${decision} ${target}`;
@@ -835,7 +836,7 @@ function renderTaskList() {
     const taskType = t.task_type_name ?? t.task_type ?? t.taskType ?? null;
     const decision = t.decision_type ? ` · ${t.decision_type}${t.target_id ? ' ' + t.target_id : ''}` : '';
     const meta = isLocal
-      ? `${taskType ? taskType + ' · ' : ''}${t.vehicle} · local${decision}`
+      ? `${taskType ? taskType + ' · ' : ''}${t.vehicle} · local`
       : `${taskType ? taskType + ' · ' : ''}${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}${decision}`;
     const progress = t.progress != null
       ? `<div class="prog-wrap"><div class="prog-fill fill-${isLocal?'cpu':'mem'}"
