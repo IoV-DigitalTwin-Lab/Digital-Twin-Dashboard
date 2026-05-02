@@ -209,7 +209,7 @@ function renderTasks() {
           </div>
           <div class="meta">
             <span class="chip ${chipClass}">${stateLabel || 'pending'}</span>
-            ${task.decision_type ? `<span class="chip">${task.decision_type}</span>` : ''}
+            ${task.decision_type && task.decision_type.toUpperCase() !== 'LOCAL' ? `<span class="chip">${task.decision_type}</span>` : ''}
           </div>
         </div>
         <div class="rail">

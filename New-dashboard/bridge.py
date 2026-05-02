@@ -460,7 +460,10 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
 
                 is_local = task_id in local_task_ids or (decision_type or "").upper() == "LOCAL"
                 if is_local:
-                    decision_type = decision_type or "LOCAL"
+                    # Force LOCAL unconditionally — the DDQN may have written a
+                    # stale remote decision to task:decision hash before the vehicle
+                    # gate overrode it with DECISION_LOCAL.
+                    decision_type = "LOCAL"
 
                 # Remap ambiguous states based on local/remote decision type.
                 if is_local and mapped_state == "remote_processing":
