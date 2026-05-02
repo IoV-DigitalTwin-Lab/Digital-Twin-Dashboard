@@ -37,7 +37,7 @@ body{background:linear-gradient(180deg,var(--bg-top),var(--bg-mid) 45%,var(--bg-
 .filter:focus{outline:none;border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
 .link{font-size:11px;font-weight:700;text-decoration:none;color:#1e3a8a;background:#e0e7ff;border:1px solid #c7d2fe;border-radius:999px;padding:6px 12px}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px;padding:20px;max-width:1400px;margin:0 auto}
+.grid{display:flex;flex-direction:column;gap:14px;padding:20px;max-width:860px;margin:0 auto}
 .card{background:var(--panel);border:1px solid var(--panel-edge);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
 .card::after{content:'';position:absolute;right:-40px;top:-40px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,rgba(37,99,235,0.12),transparent 70%);}
 
@@ -172,8 +172,7 @@ function renderTasks() {
 
   const list = Object.values(tasks)
     .filter(taskMatchesFilter)
-    .sort((a, b) => (b.event_order || 0) - (a.event_order || 0))
-    .slice(0, 12);
+    .sort((a, b) => (b.event_order || 0) - (a.event_order || 0));
 
   if (!list.length) {
     grid.innerHTML = '';
@@ -197,7 +196,9 @@ function renderTasks() {
       return `<div class="${cls}"><span class="label">${step.label}</span></div>`;
     }).join('');
 
-    const subtitle = `${task.vehicle || 'vehicle'} → ${task.rsu || task.current_target || 'RSU'}${task.target_id ? ' → ' + task.target_id : ''}`;
+    const subtitle = flow === 'local'
+      ? `${task.vehicle || 'vehicle'} · local`
+      : `${task.vehicle || 'vehicle'} → ${task.rsu || task.current_target || 'RSU'}${task.target_id ? ' → ' + task.target_id : ''}`;
     const stateLabel = String(task.state || '').replace(/_/g, ' ');
 
     return `

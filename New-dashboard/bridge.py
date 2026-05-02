@@ -41,6 +41,8 @@ clients: set[WebSocketServerProtocol] = set()
 task_cache: dict[str, str] = {}
 task_phase_cache: dict[str, int] = {}
 task_stream_last_id: dict[int, str] = {}
+# Track task IDs confirmed as local (DECISION_LOCAL seen) across events.
+local_task_ids: set[str] = set()
 
 
 async def broadcast(msg: dict) -> None:
@@ -55,6 +57,18 @@ def parse_middle_id(key: str, prefix: str, suffix: str) -> str | None:
     if not key.startswith(token) or not key.endswith(suffix):
         return None
     return key[len(token): -len(suffix)]
+
+
+def extract_vehicle_id_from_entity(raw: str) -> str:
+    """'VEHICLE_17' → '17', 'VEHICLE17' → '17', others → ''."""
+    if not raw:
+        return ""
+    u = raw.upper()
+    if u.startswith("VEHICLE_"):
+        return raw[8:]
+    if u.startswith("VEHICLE"):
+        return raw[7:]
+    return ""
 
 
 def to_float(data: dict[str, str], key: str, default: float = 0.0) -> float:
@@ -431,13 +445,29 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                 if not task_id or not mapped_state:
                     continue
 
+                # Mark task as local when DECISION_LOCAL is seen so subsequent
+                # events (PROCESSING_STARTED, COMPLETE_ON_TIME) remap correctly
+                # even when the task has no task:state hash in Redis.
+                if event_type.upper() == "DECISION_LOCAL":
+                    local_task_ids.add(task_id)
+
                 vehicle_id, rsu_id, decision_type, target_id = await resolve_task_context(r, task_id)
-                is_local = (decision_type or "").upper() == "LOCAL"
+
+                # Fallback: extract vehicle_id from source_entity when the task
+                # has no task:state hash (common for local/vehicle-only tasks).
+                if not vehicle_id:
+                    vehicle_id = extract_vehicle_id_from_entity(fields.get("source_entity", ""))
+
+                is_local = task_id in local_task_ids or (decision_type or "").upper() == "LOCAL"
+                if is_local:
+                    decision_type = decision_type or "LOCAL"
 
                 # Remap ambiguous states based on local/remote decision type.
                 if is_local and mapped_state == "remote_processing":
                     mapped_state = "local_processing"
-                elif is_local and mapped_state == "complete":
+                elif is_local and mapped_state in {"complete", "result_returning"}:
+                    # PROCESSING_COMPLETED → result_returning and COMPLETE_ON_TIME → complete
+                    # both become local_complete for local tasks.
                     mapped_state = "local_complete"
 
                 event: dict[str, Any] = {
