@@ -161,8 +161,7 @@ function stateIndex(state, flow) {
 
 function getFlow(task) {
   const decision = String(task.decision_type || '').toUpperCase();
-  if (!decision || decision === 'LOCAL') return 'local';
-  return 'remote';
+  return decision === 'LOCAL' ? 'local' : 'remote';
 }
 
 function renderTasks() {

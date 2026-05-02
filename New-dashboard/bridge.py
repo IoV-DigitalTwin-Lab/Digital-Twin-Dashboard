@@ -477,8 +477,12 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                     "state": mapped_state,
                     "event_type": event_type,
                     "source_db": source_db,
-                    "decision_type": decision_type,
                 }
+                # Only include decision_type when it is known; omitting it for
+                # empty strings prevents overwriting the correct value that an
+                # earlier state-poller event already set on the task object.
+                if decision_type:
+                    event["decision_type"] = decision_type
 
                 # Local tasks have no comm-line animation.
                 if not is_local:
