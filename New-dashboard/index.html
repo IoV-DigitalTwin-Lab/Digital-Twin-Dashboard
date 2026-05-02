@@ -44,6 +44,28 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 .rsu-filter{height:28px;padding:0 10px;border:1px solid #ddd8cf;border-radius:999px;background:#fff;color:#1a1a18;font-size:11px;font-weight:600}
 .rsu-filter:focus{outline:none;border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
 
+/* ── RSU focus strip ─────────────────────────────────────────────────────── */
+.rsu-strip{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:46px;padding:8px 12px;background:linear-gradient(180deg,#fff,#fbfaf7);
+  border-bottom:1px solid #ece9e2;flex-shrink:0}
+.rsu-strip-left{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.rsu-label{font-size:10px;font-weight:700;color:#7a776f;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+.rsu-buttons{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rsu-btn{height:28px;padding:0 12px;border:1px solid #d9d4ca;border-radius:999px;background:#fff;
+  color:#57534e;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s ease}
+.rsu-btn:hover{border-color:#94a3b8;color:#1f2937;background:#f8fafc}
+.rsu-btn.active{background:linear-gradient(135deg,#0f766e,#0f766e);border-color:#0f766e;color:#fff;box-shadow:0 4px 10px rgba(15,118,110,.22)}
+.rsu-stats{display:flex;align-items:stretch;gap:8px;flex-shrink:0}
+.rsu-stat{min-width:96px;border:1px solid #e9e5dd;border-radius:10px;padding:6px 9px;background:#fff}
+.rsu-stat .k{font-size:9px;color:#8b8b88;text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+.rsu-stat .v{font-size:14px;color:#1a1a18;font-weight:800;line-height:1.2;margin-top:2px}
+
+@media (max-width: 920px) {
+  .rsu-strip{flex-direction:column;align-items:stretch;gap:8px}
+  .rsu-stats{justify-content:space-between}
+  .rsu-stat{min-width:0;flex:1}
+}
+
 /* ── Sidebar sections ─────────────────────────────────────────────────────── */
 .sb-head{padding:8px 12px;font-size:10px;font-weight:600;color:#888;
   letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #f0ede8}
@@ -188,6 +210,20 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
     </div>
   </div>
 
+  <div class="rsu-strip">
+    <div class="rsu-strip-left">
+      <span class="rsu-label">RSU focus</span>
+      <div class="rsu-buttons" id="rsu-buttons">
+        <button class="rsu-btn active" data-rsu="">All RSUs</button>
+      </div>
+    </div>
+    <div class="rsu-stats">
+      <div class="rsu-stat"><div class="k">Available vehicles</div><div class="v" id="rsu-vehicle-count">0</div></div>
+      <div class="rsu-stat"><div class="k">Processing</div><div class="v" id="rsu-processing-count">0</div></div>
+      <div class="rsu-stat"><div class="k">Processed</div><div class="v" id="rsu-processed-count">0</div></div>
+    </div>
+  </div>
+
   <div class="main">
 
     <!-- Leaflet map -->
@@ -320,6 +356,8 @@ let   selectedInjectionVehicleId = '';
 let   currentSummaryTaskId = '';
 let   activeVehiclesTimer = null;
 let   summaryTimer = null;
+let   selectedRsuId = '';
+const vehicleRsuAssignment = {};
 const taskResultCache = {};
 let   selectedRsuFilter = 'ALL';
 const DEFAULT_RSU_IDS = ['RSU_0', 'RSU_1', 'RSU_2'];
@@ -372,6 +410,151 @@ function formatTaskStatus(task) {
   if (raw.includes('FAIL')) return 'Failure';
   if (raw.includes('COMPLETE') || raw.includes('SUCCESS') || raw.includes('ON_TIME')) return 'Success';
   return raw.replace(/_/g, ' ');
+}
+
+function getKnownRsuIds() {
+  const ids = Object.values(entities)
+    .filter(entity => entity.kind === 'rsu')
+    .map(entity => String(entity.id));
+  return Array.from(new Set(ids)).sort();
+}
+
+function computeVehicleRsuAssignment() {
+  Object.keys(vehicleRsuAssignment).forEach(id => delete vehicleRsuAssignment[id]);
+
+  const rsus = Object.values(entities).filter(entity => entity.kind === 'rsu');
+  if (!rsus.length) return;
+
+  Object.values(entities)
+    .filter(entity => entity.kind === 'vehicle' || entity.kind === 'sv')
+    .forEach(vehicle => {
+      let nearest = null;
+      let bestDist = Number.POSITIVE_INFINITY;
+
+      rsus.forEach(rsu => {
+        const dx = Number(vehicle.x ?? 0) - Number(rsu.x ?? 0);
+        const dy = Number(vehicle.y ?? 0) - Number(rsu.y ?? 0);
+        const dist2 = dx * dx + dy * dy;
+        if (dist2 < bestDist) {
+          bestDist = dist2;
+          nearest = rsu.id;
+        }
+      });
+
+      if (nearest) {
+        vehicleRsuAssignment[vehicle.id] = nearest;
+      }
+    });
+}
+
+function taskMatchesRsu(task, rsuId = selectedRsuId) {
+  if (!rsuId) return true;
+  if (!task) return false;
+
+  const direct = [task.rsu, task.current_target, task.target_id, task.processor_id]
+    .map(value => String(value || ''));
+  if (direct.includes(String(rsuId))) return true;
+
+  const vehicleId = task.vehicle ? String(task.vehicle) : '';
+  if (vehicleId && vehicleRsuAssignment[vehicleId] === rsuId) return true;
+
+  return false;
+}
+
+function entityMatchesRsu(entityId, rsuId = selectedRsuId) {
+  if (!rsuId) return true;
+  const entity = entities[entityId];
+  if (!entity) return true;
+
+  if (entity.kind === 'rsu') {
+    return String(entity.id) === String(rsuId);
+  }
+
+  if (entity.kind === 'vehicle' || entity.kind === 'sv') {
+    if (vehicleRsuAssignment[entity.id] === rsuId) return true;
+    return Object.values(tasks).some(task => taskMatchesRsu(task, rsuId) &&
+      (task.vehicle === entity.id || task.current_target === entity.id || task.target_id === entity.id || task.processor_id === entity.id));
+  }
+
+  return true;
+}
+
+function updateMarkerVisibility() {
+  Object.entries(markers).forEach(([id, marker]) => {
+    const visible = entityMatchesRsu(id);
+    if (visible) {
+      if (!map.hasLayer(marker)) marker.addTo(map);
+    } else if (map.hasLayer(marker)) {
+      map.removeLayer(marker);
+    }
+  });
+}
+
+function updateRsuStats() {
+  const activeStates = new Set(['generated', 'metadata_sent', 'decision_returned', 'task_data_sent', 'remote_processing', 'result_returning', 'local_queued', 'local_processing']);
+  const doneStates = new Set(['complete', 'local_complete']);
+
+  const vehicles = Object.values(entities)
+    .filter(entity => entity.kind === 'vehicle' || entity.kind === 'sv')
+    .filter(entity => entityMatchesRsu(entity.id));
+
+  const scopedTasks = Object.values(tasks).filter(task => taskMatchesRsu(task));
+  const processing = scopedTasks.filter(task => activeStates.has(task.state)).length;
+  const processed = scopedTasks.filter(task => doneStates.has(task.state)).length;
+
+  document.getElementById('rsu-vehicle-count').textContent = String(vehicles.length);
+  document.getElementById('rsu-processing-count').textContent = String(processing);
+  document.getElementById('rsu-processed-count').textContent = String(processed);
+}
+
+function setSelectedRsu(nextRsuId) {
+  selectedRsuId = String(nextRsuId || '');
+
+  if (selectedId && !entityMatchesRsu(selectedId)) {
+    selectedId = null;
+  }
+
+  if (!selectedId && selectedRsuId && entities[selectedRsuId]) {
+    selectedId = selectedRsuId;
+  }
+
+  Object.entries(entities).forEach(([eid, entity]) => {
+    if (markers[eid]) {
+      const sel = (eid === selectedId);
+      markers[eid].setIcon(markerHtml(entity.kind, eid, sel));
+      markerVisual[eid] = { kind: entity.kind, sel };
+    }
+  });
+
+  renderRsuButtons();
+  updateMarkerVisibility();
+  renderTaskList();
+  updateRsuStats();
+  updateResPanel();
+}
+
+function renderRsuButtons() {
+  const container = document.getElementById('rsu-buttons');
+  if (!container) return;
+
+  const rsuIds = getKnownRsuIds();
+  if (selectedRsuId && !rsuIds.includes(selectedRsuId)) {
+    selectedRsuId = '';
+  }
+
+  const options = [''].concat(rsuIds);
+  container.innerHTML = options.map(rsuId => {
+    const label = rsuId ? formatEntityLabel('rsu', rsuId) : 'All RSUs';
+    const active = rsuId === selectedRsuId ? ' active' : '';
+    return `<button class="rsu-btn${active}" data-rsu="${rsuId}">${label}</button>`;
+  }).join('');
+
+  container.querySelectorAll('.rsu-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const rsuId = button.dataset.rsu || '';
+      setSelectedRsu(rsuId);
+    });
+  });
 }
 
 function rsuIdToDb(rsuId) {
@@ -812,7 +995,7 @@ const STATE_LABELS = {
 
 function renderTaskList() {
   const list = document.getElementById('task-list');
-  const allTasks = Object.values(tasks).filter(taskMatchesFilter);
+  const allTasks = Object.values(tasks).filter(task => taskMatchesRsu(task));
   const entityScoped = selectedId
     ? allTasks.filter(t => t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId)
     : allTasks;
@@ -825,7 +1008,9 @@ function renderTaskList() {
   if (active.length === 0 && done.length === 0) {
     list.innerHTML = selectedId
       ? `<div style="padding:12px;font-size:11px;color:#aaa">No tasks for ${selectedId}…</div>`
-      : '<div style="padding:12px;font-size:11px;color:#aaa">No tasks yet…</div>';
+      : (selectedRsuId
+        ? `<div style="padding:12px;font-size:11px;color:#aaa">No tasks for ${formatEntityLabel('rsu', selectedRsuId)}…</div>`
+        : '<div style="padding:12px;font-size:11px;color:#aaa">No tasks yet…</div>');
     return;
   }
 
@@ -857,6 +1042,10 @@ function selectTask(id) {
   selectedTaskId = id;
   currentSummaryTaskId = id;
   const t = tasks[id];
+  if (t?.rsu) {
+    selectedRsuId = String(t.rsu);
+    renderRsuButtons();
+  }
   if (t) selectEntity(t.vehicle);
   renderTaskList();
   renderAlgorithmSummary(id);
@@ -1124,6 +1313,7 @@ function updateResPanel() {
   const queueFromRedis = r?.queue;
   const openStates = new Set(['complete', 'local_complete', 'failed']);
   const relatedTasks = Object.values(tasks).filter(t => {
+    if (!taskMatchesRsu(t)) return false;
     if (openStates.has(t.state)) return false;
     return taskMatchesFilter(t) && (t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId);
   });
@@ -1183,9 +1373,15 @@ function handleMsg(msg) {
       if (map) upsertMarker(entities[id]);
     });
 
+    computeVehicleRsuAssignment();
+    renderRsuButtons();
+    updateMarkerVisibility();
+
     if (!selectedId && Object.keys(entities).length > 0) {
-      const visibleEntities = Object.values(entities).filter(entityMatchesFilter);
-      const preferred = visibleEntities.find(v => v.kind === 'vehicle') || visibleEntities[0];
+      const visibleEntities = Object.values(entities)
+        .filter(v => entityMatchesRsu(v.id))
+        .filter(entityMatchesFilter);
+      const preferred = visibleEntities.find(v => v.kind === 'vehicle') || Object.values(entities).find(v => entityMatchesRsu(v.id)) || visibleEntities[0];
       if (preferred?.id) {
         selectEntity(preferred.id);
       }
@@ -1195,8 +1391,9 @@ function handleMsg(msg) {
     const visibleCount = Object.values(entities).filter(entityMatchesFilter).length;
     document.getElementById('entity-count').textContent = visibleCount;
     // Refresh comm lines since positions changed
-    Object.values(tasks).forEach(updateCommLine);
+    Object.values(tasks).filter(task => taskMatchesRsu(task)).forEach(updateCommLine);
     updateResPanel();
+    updateRsuStats();
   }
 
   else if (msg.type === 'resources') {
@@ -1204,17 +1401,19 @@ function handleMsg(msg) {
       resources[id] = { ...resources[id], ...r };
     });
     updateResPanel();
+    updateRsuStats();
   }
 
   else if (msg.type === 'task_event') {
     const t = msg.data;
     const prev = tasks[t.task_id] ?? {};
     tasks[t.task_id] = { ...prev, ...t, event_order: (prev.event_order ?? 0) + 1 };
-    if (map) updateCommLine(tasks[t.task_id]);
+    if (map && taskMatchesRsu(tasks[t.task_id])) updateCommLine(tasks[t.task_id]);
     if (t.state === 'complete' || t.state === 'local_complete' || t.state === 'failed') {
       setTimeout(() => clearCommLine(t.task_id), 2000);
     }
     renderTaskList();
+    updateRsuStats();
     if (t.task_id === currentSummaryTaskId) {
       renderAlgorithmSummary(t.task_id);
     }
@@ -1250,6 +1449,8 @@ function pad3(n) { return String(n).padStart(3, '0'); }
   await loadMapGeoJSON();
   setupSidebarResizer();
   setupTaskListResizer();
+  renderRsuButtons();
+  updateRsuStats();
   renderRsuFilterOptions();
   const rsuFilter = document.getElementById('rsu-filter');
   if (rsuFilter) {
