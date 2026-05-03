@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Any
 
 import redis.asyncio as aioredis
@@ -68,6 +69,30 @@ def extract_vehicle_id_from_entity(raw: str) -> str:
         return raw[8:]
     if u.startswith("VEHICLE"):
         return raw[7:]
+    match = re.match(r"^V(\d+)(?:\b|_|-|:|$)", raw, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def normalize_vehicle_id(*values: str) -> str:
+    """Return the first usable vehicle id from a list of Redis/event fields."""
+    for value in values:
+        candidate = (value or "").strip()
+        if not candidate:
+            continue
+
+        extracted = extract_vehicle_id_from_entity(candidate)
+        if extracted:
+            return extracted
+
+        if candidate.isdigit():
+            return candidate
+
+        match = re.match(r"^V(\d+)$", candidate, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+
     return ""
 
 
@@ -224,12 +249,16 @@ def build_phase_sequence(prev_phase: int | None, next_phase: int, remote: bool) 
 
 def map_lifecycle_event_to_state(event_type: str) -> str | None:
     et = (event_type or "").upper()
+    if et == "OFFLOADING_REQUEST_RECEIVED":
+        return "generated"
     if et == "TASK_CREATED":
         return "generated"
     if et == "DECISION_LOCAL":
         return "generated"  # local task confirmed; no animation
+    if et == "DECISION_OFFLOAD":
+        return "decision_returned"
     if et == "METADATA_SENT_MANUAL":
-        return "generated"  # no animation — treated as ordinary task start
+        return "metadata_sent"
     if "METADATA_SENT" in et:
         return "metadata_sent"
     if et in {"SV_TASK_RECEIVED"}:
@@ -273,12 +302,16 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
 
 def map_lifecycle_event_to_edge(event_type: str) -> str | None:
     et = (event_type or "").upper()
+    if et == "OFFLOADING_REQUEST_RECEIVED":
+        return None
     if et in {"TASK_CREATED", "DECISION_LOCAL"}:
         return None  # no animation for local task lifecycle markers
     if et == "METADATA_SENT_MANUAL":
-        return None  # no comm-line animation for manual tasks
+        return "metadata_sent"
     if "METADATA_SENT" in et:
         return "metadata_sent"
+    if et == "DECISION_OFFLOAD":
+        return "decision_returned"
     if et in {"SV_TASK_RECEIVED"}:
         return "task_data_sent"
     if et in {"SV_PROCESSING_STARTED"}:
@@ -453,10 +486,17 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
 
                 vehicle_id, rsu_id, decision_type, target_id = await resolve_task_context(r, task_id)
 
-                # Fallback: extract vehicle_id from source_entity when the task
-                # has no task:state hash (common for local/vehicle-only tasks).
+                # Fallback: extract vehicle_id from source_entity or similar
+                # fields when the task has no task:state hash yet.
                 if not vehicle_id:
-                    vehicle_id = extract_vehicle_id_from_entity(fields.get("source_entity", ""))
+                    vehicle_id = normalize_vehicle_id(
+                        fields.get("vehicle_id", ""),
+                        fields.get("source_entity", ""),
+                        fields.get("source_id", ""),
+                        fields.get("sender_id", ""),
+                        fields.get("origin_id", ""),
+                        fields.get("task_owner", ""),
+                    )
 
                 is_local = task_id in local_task_ids or (decision_type or "").upper() == "LOCAL"
                 if is_local:
@@ -476,7 +516,9 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                 event: dict[str, Any] = {
                     "task_id": task_id,
                     "vehicle": vehicle_id,
+                    "vehicle_id": vehicle_id,
                     "rsu": rsu_id,
+                    "rsu_id": rsu_id,
                     "state": mapped_state,
                     "event_type": event_type,
                     "source_db": source_db,

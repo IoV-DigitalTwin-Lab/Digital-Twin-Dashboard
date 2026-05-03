@@ -1,18 +1,9 @@
-/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/bridge.py:28: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated
+/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/bridge.py:29: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated
   from websockets.server import WebSocketServerProtocol
-2026-05-03 22:40:01,191 INFO Connected to Redis at localhost:16379, dbs=[0, 1, 2]
-2026-05-03 22:40:01,193 INFO server listening on 0.0.0.0:8765
-2026-05-03 22:40:01,193 INFO WebSocket server on ws://0.0.0.0:8765
-2026-05-03 22:40:03,385 INFO connection open
-2026-05-03 22:40:03,385 INFO Client connected: ('127.0.0.1', 48458)  total=1
-2026-05-03 22:40:05,773 INFO connection open
-2026-05-03 22:40:05,774 INFO Client connected: ('127.0.0.1', 48462)  total=2
-2026-05-03 22:40:11,616 INFO Client disconnected  total=1
-2026-05-03 22:40:12,012 INFO connection open
-2026-05-03 22:40:12,013 INFO Client connected: ('127.0.0.1', 48478)  total=2
-2026-05-03 22:41:25,000 INFO Client disconnected  total=1
-2026-05-03 22:41:25,380 INFO connection open
-2026-05-03 22:41:25,381 INFO Client connected: ('127.0.0.1', 43334)  total=2
-2026-05-03 22:42:02,663 INFO Client disconnected  total=1
-2026-05-03 22:42:03,011 INFO connection open
-2026-05-03 22:42:03,012 INFO Client connected: ('127.0.0.1', 36320)  total=2
+2026-05-03 23:08:08,234 INFO Connected to Redis at localhost:16379, dbs=[0, 1, 2]
+2026-05-03 23:08:08,235 INFO server listening on 0.0.0.0:8765
+2026-05-03 23:08:08,236 INFO WebSocket server on ws://0.0.0.0:8765
+2026-05-03 23:08:08,830 INFO connection open
+2026-05-03 23:08:08,831 INFO Client connected: ('127.0.0.1', 46708)  total=1
+2026-05-03 23:08:11,530 INFO connection open
+2026-05-03 23:08:11,530 INFO Client connected: ('127.0.0.1', 46718)  total=2
