@@ -1,108 +1,18 @@
 /home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/bridge.py:28: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated
   from websockets.server import WebSocketServerProtocol
-2026-05-03 20:21:05,559 INFO Connected to Redis at localhost:16379, dbs=[0, 1, 2]
-2026-05-03 20:21:05,563 INFO server listening on 0.0.0.0:8765
-2026-05-03 20:21:05,563 INFO WebSocket server on ws://0.0.0.0:8765
-2026-05-03 20:22:06,874 INFO connection open
-2026-05-03 20:22:06,874 INFO Client connected: ('127.0.0.1', 50378)  total=1
-2026-05-03 20:26:16,317 INFO Client disconnected  total=0
-2026-05-03 20:26:17,496 INFO connection open
-2026-05-03 20:26:17,496 INFO Client connected: ('127.0.0.1', 52356)  total=1
-2026-05-03 20:39:57,047 INFO connection open
-2026-05-03 20:39:57,047 INFO Client connected: ('127.0.0.1', 57968)  total=2
-2026-05-03 20:52:47,283 INFO Client disconnected  total=1
-2026-05-03 20:52:48,829 INFO connection open
-2026-05-03 20:52:48,829 INFO Client connected: ('127.0.0.1', 40504)  total=2
-2026-05-03 21:02:57,120 INFO Client disconnected  total=1
-2026-05-03 21:02:58,340 INFO connection open
-2026-05-03 21:02:58,341 INFO Client connected: ('127.0.0.1', 51222)  total=2
-2026-05-03 21:15:35,809 INFO Client disconnected  total=1
-2026-05-03 21:15:36,208 INFO connection open
-2026-05-03 21:15:36,208 INFO Client connected: ('127.0.0.1', 39068)  total=2
-2026-05-03 21:15:40,196 INFO Client disconnected  total=1
-2026-05-03 21:16:30,241 INFO connection open
-2026-05-03 21:16:30,241 INFO Client connected: ('127.0.0.1', 51792)  total=2
-2026-05-03 21:37:45,010 INFO Client disconnected  total=1
-2026-05-03 21:37:45,036 INFO Client disconnected  total=0
-2026-05-03 21:37:48,174 INFO connection open
-2026-05-03 21:37:48,175 INFO Client connected: ('127.0.0.1', 44308)  total=1
-2026-05-03 21:37:48,324 INFO connection open
-2026-05-03 21:37:48,324 INFO Client connected: ('127.0.0.1', 44322)  total=2
-2026-05-03 21:41:55,379 INFO Client disconnected  total=1
-2026-05-03 21:42:27,900 INFO connection open
-2026-05-03 21:42:27,900 INFO Client connected: ('127.0.0.1', 50932)  total=2
-2026-05-03 22:27:50,874 INFO Client disconnected  total=1
-2026-05-03 22:27:51,206 INFO Client disconnected  total=0
-2026-05-03 22:33:04,077 INFO connection open
-2026-05-03 22:33:04,078 INFO Client connected: ('127.0.0.1', 55112)  total=1
-2026-05-03 22:33:30,713 INFO Client disconnected  total=0
-2026-05-03 22:33:31,033 INFO connection open
-2026-05-03 22:33:31,034 INFO Client connected: ('127.0.0.1', 57380)  total=1
-2026-05-03 22:33:44,865 INFO connection open
-2026-05-03 22:33:44,865 INFO Client connected: ('127.0.0.1', 58592)  total=2
-2026-05-03 22:34:13,792 INFO server closing
-2026-05-03 22:34:13,806 INFO Client disconnected  total=1
-2026-05-03 22:34:13,807 INFO Client disconnected  total=0
-2026-05-03 22:34:13,807 INFO server closed
-Traceback (most recent call last):
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/connection.py", line 365, in connect_check_health
-    await self.retry.call_with_retry(
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/retry.py", line 69, in call_with_retry
-    return await do()
-           ^^^^^^^^^^
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/connection.py", line 895, in _connect
-    reader, writer = await asyncio.open_connection(
-                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/streams.py", line 48, in open_connection
-    transport, _ = await loop.create_connection(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/base_events.py", line 1122, in create_connection
-    raise exceptions[0]
-  File "/usr/lib/python3.12/asyncio/base_events.py", line 1104, in create_connection
-    sock = await self._connect_sock(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/base_events.py", line 1007, in _connect_sock
-    await self.sock_connect(sock, address)
-  File "/usr/lib/python3.12/asyncio/selector_events.py", line 651, in sock_connect
-    return await fut
-           ^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/selector_events.py", line 691, in _sock_connect_cb
-    raise OSError(err, f'Connect call failed {address}')
-ConnectionRefusedError: [Errno 111] Connect call failed ('127.0.0.1', 16379)
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/bridge.py", line 1040, in <module>
-    asyncio.run(main())
-  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
-    return runner.run(main)
-           ^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
-    return self._loop.run_until_complete(task)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
-    return future.result()
-           ^^^^^^^^^^^^^^^
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/bridge.py", line 1031, in main
-    await asyncio.gather(
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/bridge.py", line 788, in position_poller
-    data = await r.hgetall(key)
-           ^^^^^^^^^^^^^^^^^^^^
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/client.py", line 781, in execute_command
-    result = await conn.retry.call_with_retry(
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/retry.py", line 81, in call_with_retry
-    raise error
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/retry.py", line 69, in call_with_retry
-    return await do()
-           ^^^^^^^^^^
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/client.py", line 721, in _send_command_parse_response
-    await conn.send_command(*args)
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/connection.py", line 694, in send_command
-    await self.send_packed_command(
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/connection.py", line 655, in send_packed_command
-    await self.connect_check_health(check_health=False)
-  File "/home/mihirajakuruppu/Digital-Twin-Dashboard/New-dashboard/.venv/lib/python3.12/site-packages/redis/asyncio/connection.py", line 397, in connect_check_health
-    raise e
-redis.exceptions.ConnectionError: Error 111 connecting to localhost:16379. Connect call failed ('127.0.0.1', 16379).
+2026-05-03 22:40:01,191 INFO Connected to Redis at localhost:16379, dbs=[0, 1, 2]
+2026-05-03 22:40:01,193 INFO server listening on 0.0.0.0:8765
+2026-05-03 22:40:01,193 INFO WebSocket server on ws://0.0.0.0:8765
+2026-05-03 22:40:03,385 INFO connection open
+2026-05-03 22:40:03,385 INFO Client connected: ('127.0.0.1', 48458)  total=1
+2026-05-03 22:40:05,773 INFO connection open
+2026-05-03 22:40:05,774 INFO Client connected: ('127.0.0.1', 48462)  total=2
+2026-05-03 22:40:11,616 INFO Client disconnected  total=1
+2026-05-03 22:40:12,012 INFO connection open
+2026-05-03 22:40:12,013 INFO Client connected: ('127.0.0.1', 48478)  total=2
+2026-05-03 22:41:25,000 INFO Client disconnected  total=1
+2026-05-03 22:41:25,380 INFO connection open
+2026-05-03 22:41:25,381 INFO Client connected: ('127.0.0.1', 43334)  total=2
+2026-05-03 22:42:02,663 INFO Client disconnected  total=1
+2026-05-03 22:42:03,011 INFO connection open
+2026-05-03 22:42:03,012 INFO Client connected: ('127.0.0.1', 36320)  total=2
