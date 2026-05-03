@@ -127,6 +127,28 @@ const TASK_STATE_RANK = {
 };
 const VISUAL_FALLBACK_MS = 5000;
 const REMOTE_PROCESSING_FALLBACK_MS = 10000;
+const TASK_TYPE_VISUAL_TIMING_MS = {
+  COOPERATIVE_PERCEPTION: {
+    default: 3000,
+    remote_processing: 6000,
+  },
+  ROUTE_OPTIMIZATION: {
+    default: 7000,
+    remote_processing: 12000,
+  },
+  FLEET_TRAFFIC_FORECAST: {
+    default: 9000,
+    remote_processing: 15000,
+  },
+  VOICE_COMMAND_PROCESSING: {
+    default: 4000,
+    remote_processing: 7000,
+  },
+  SENSOR_HEALTH_CHECK: {
+    default: 5000,
+    remote_processing: 10000,
+  },
+};
 const REMOTE_TASK_FLOW = ['generated', 'metadata_sent', 'decision_returned', 'task_data_sent', 'remote_processing', 'result_returning', 'complete'];
 const LOCAL_TASK_FLOW = ['generated', 'local_processing', 'local_complete'];
 const TERMINAL_TASK_STATES = new Set(['complete', 'local_complete', 'failed']);
@@ -140,6 +162,19 @@ function getTaskFlow(task) {
   const decision = String(task?.decision_type || '').toUpperCase();
   const state = String(task?.state || '');
   return decision === 'LOCAL' || state.startsWith('local') ? LOCAL_TASK_FLOW : REMOTE_TASK_FLOW;
+}
+
+function getTaskTypeKey(task) {
+  const raw = task?.task_type_name ?? task?.task_type ?? task?.taskType ?? '';
+  return String(raw).trim().toUpperCase().replace(/[\s-]+/g, '_');
+}
+
+function getVisualFallbackMs(task) {
+  const timing = TASK_TYPE_VISUAL_TIMING_MS[getTaskTypeKey(task)];
+  if (task?.state === 'remote_processing') {
+    return timing?.remote_processing ?? REMOTE_PROCESSING_FALLBACK_MS;
+  }
+  return timing?.default ?? VISUAL_FALLBACK_MS;
 }
 
 function sanitizeTaskUpdate(prev, next) {
@@ -195,7 +230,7 @@ function applyTaskVisualFallbacks() {
   Object.entries(tasks).forEach(([taskId, task]) => {
     if (!task || TERMINAL_TASK_STATES.has(task.state)) return;
     const lastVisualUpdate = task._last_visual_update_ms || task._last_redis_update_ms || now;
-    const fallbackMs = task.state === 'remote_processing' ? REMOTE_PROCESSING_FALLBACK_MS : VISUAL_FALLBACK_MS;
+    const fallbackMs = getVisualFallbackMs(task);
     if (now - lastVisualUpdate < fallbackMs) return;
 
     const nextState = nextVisualTaskState(task);
