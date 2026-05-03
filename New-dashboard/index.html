@@ -993,6 +993,11 @@ const STATE_LABELS = {
   failed:            'failed',
 };
 
+const VISUAL_FALLBACK_MS = 1000;
+const REMOTE_TASK_FLOW = ['generated', 'metadata_sent', 'decision_returned', 'task_data_sent', 'remote_processing', 'result_returning', 'complete'];
+const LOCAL_TASK_FLOW = ['generated', 'local_processing', 'local_complete'];
+const TERMINAL_TASK_STATES = new Set(['complete', 'local_complete', 'failed']);
+
 const TASK_STATE_RANK = {
   generated: 0,
   metadata_sent: 1,
@@ -1005,11 +1010,101 @@ const TASK_STATE_RANK = {
   local_complete: 12,
 };
 
-function shouldAcceptTaskUpdate(prev, next) {
-  if (!next || next.state === 'failed') return false;
+function getTaskFlow(task) {
+  const decision = String(task?.decision_type || '').toUpperCase();
+  const state = String(task?.state || '');
+  return decision === 'LOCAL' || state.startsWith('local') ? LOCAL_TASK_FLOW : REMOTE_TASK_FLOW;
+}
+
+function visualEdgeForState(state) {
+  if (['metadata_sent', 'decision_returned', 'task_data_sent', 'remote_processing', 'result_returning'].includes(state)) {
+    return state;
+  }
+  return undefined;
+}
+
+function sanitizeTaskUpdate(prev, next) {
+  const clean = { ...(next || {}) };
+  const status = String(clean.status || '').toUpperCase();
+  if (clean.state === 'failed' || status.includes('FAIL')) {
+    delete clean.state;
+    clean.status = prev?.status || prev?.state || 'PENDING';
+    delete clean.edge_type;
+    delete clean.line_kind;
+  }
+  return clean;
+}
+
+function mergeTaskUpdate(prev, next, source = 'redis') {
+  if (!next) return prev || {};
+  const now = Date.now();
+  const clean = sanitizeTaskUpdate(prev, next);
   const prevRank = TASK_STATE_RANK[prev?.state];
-  const nextRank = TASK_STATE_RANK[next.state];
-  return prevRank == null || nextRank == null || nextRank >= prevRank;
+  const nextRank = TASK_STATE_RANK[clean.state];
+  const backward = prevRank != null && nextRank != null && nextRank < prevRank;
+  const merged = {
+    ...(prev || {}),
+    ...clean,
+    event_order: (prev?.event_order ?? 0) + 1,
+    _last_visual_update_ms: now,
+  };
+
+  if (source === 'redis') {
+    merged._last_redis_update_ms = now;
+    merged.visual_fallback = false;
+  } else {
+    merged.visual_fallback = true;
+  }
+
+  if (backward) {
+    merged.state = prev.state;
+    merged.edge_type = prev.edge_type;
+    merged.line_kind = prev.line_kind;
+  }
+
+  return merged;
+}
+
+function nextVisualTaskState(task) {
+  if (!task || TERMINAL_TASK_STATES.has(task.state)) return null;
+  const flow = getTaskFlow(task);
+  const idx = flow.indexOf(task.state || 'generated');
+  if (idx < 0) return flow[0];
+  if (idx >= flow.length - 1) return null;
+  return flow[idx + 1];
+}
+
+function applyTaskVisualFallbacks() {
+  const now = Date.now();
+  let changed = false;
+  Object.entries(tasks).forEach(([taskId, task]) => {
+    if (!task || TERMINAL_TASK_STATES.has(task.state)) return;
+    const lastVisualUpdate = task._last_visual_update_ms || task._last_redis_update_ms || now;
+    if (now - lastVisualUpdate < VISUAL_FALLBACK_MS) return;
+
+    const nextState = nextVisualTaskState(task);
+    if (!nextState) return;
+
+    tasks[taskId] = mergeTaskUpdate(task, {
+      task_id: taskId,
+      state: nextState,
+      status: nextState === 'complete' || nextState === 'local_complete' ? 'COMPLETED' : nextState.toUpperCase(),
+      edge_type: visualEdgeForState(nextState),
+    }, 'visual');
+
+    if (map && taskMatchesRsu(tasks[taskId])) updateCommLine(tasks[taskId]);
+    if (nextState === 'complete' || nextState === 'local_complete') {
+      setTimeout(() => clearCommLine(taskId), 2000);
+    }
+    changed = true;
+  });
+
+  if (!changed) return;
+  renderTaskList();
+  updateRsuStats();
+  if (currentSummaryTaskId) {
+    renderAlgorithmSummary(currentSummaryTaskId);
+  }
 }
 
 function renderTaskList() {
@@ -1425,12 +1520,11 @@ function handleMsg(msg) {
 
   else if (msg.type === 'task_event') {
     const t = { ...msg.data };
-    if (String(t.status || '').toUpperCase().includes('FAIL')) t.status = t.state;
+    if (!t.task_id) return;
     const prev = tasks[t.task_id] ?? {};
-    if (!shouldAcceptTaskUpdate(prev, t)) return;
-    tasks[t.task_id] = { ...prev, ...t, event_order: (prev.event_order ?? 0) + 1 };
+    tasks[t.task_id] = mergeTaskUpdate(prev, t, 'redis');
     if (map && taskMatchesRsu(tasks[t.task_id])) updateCommLine(tasks[t.task_id]);
-    if (t.state === 'complete' || t.state === 'local_complete' || t.state === 'failed') {
+    if (tasks[t.task_id].state === 'complete' || tasks[t.task_id].state === 'local_complete') {
       setTimeout(() => clearCommLine(t.task_id), 2000);
     }
     renderTaskList();
@@ -1483,6 +1577,7 @@ function pad3(n) { return String(n).padStart(3, '0'); }
   await refreshTaskSummary();
   activeVehiclesTimer = setInterval(refreshActiveVehicles, 3000);
   summaryTimer = setInterval(() => refreshTaskSummary(), 2000);
+  setInterval(applyTaskVisualFallbacks, 250);
   connectWS();
 })();
 </script>
