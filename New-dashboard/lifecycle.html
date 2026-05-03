@@ -125,7 +125,8 @@ const TASK_STATE_RANK = {
   local_processing: 11,
   local_complete: 12,
 };
-const VISUAL_FALLBACK_MS = 1000;
+const VISUAL_FALLBACK_MS = 5000;
+const REMOTE_PROCESSING_FALLBACK_MS = 10000;
 const REMOTE_TASK_FLOW = ['generated', 'metadata_sent', 'decision_returned', 'task_data_sent', 'remote_processing', 'result_returning', 'complete'];
 const LOCAL_TASK_FLOW = ['generated', 'local_processing', 'local_complete'];
 const TERMINAL_TASK_STATES = new Set(['complete', 'local_complete', 'failed']);
@@ -194,7 +195,8 @@ function applyTaskVisualFallbacks() {
   Object.entries(tasks).forEach(([taskId, task]) => {
     if (!task || TERMINAL_TASK_STATES.has(task.state)) return;
     const lastVisualUpdate = task._last_visual_update_ms || task._last_redis_update_ms || now;
-    if (now - lastVisualUpdate < VISUAL_FALLBACK_MS) return;
+    const fallbackMs = task.state === 'remote_processing' ? REMOTE_PROCESSING_FALLBACK_MS : VISUAL_FALLBACK_MS;
+    if (now - lastVisualUpdate < fallbackMs) return;
 
     const nextState = nextVisualTaskState(task);
     if (!nextState) return;
