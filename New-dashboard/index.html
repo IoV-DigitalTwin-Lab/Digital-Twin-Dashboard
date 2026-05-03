@@ -41,8 +41,6 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 .topbar-link{font-size:11px;font-weight:600;text-decoration:none;color:#1e40af;
   background:#e0e7ff;border:1px solid #c7d2fe;border-radius:999px;padding:4px 10px}
 .topbar-link:hover{background:#c7d2fe}
-.rsu-filter{height:28px;padding:0 10px;border:1px solid #ddd8cf;border-radius:999px;background:#fff;color:#1a1a18;font-size:11px;font-weight:600}
-.rsu-filter:focus{outline:none;border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
 
 /* ── RSU focus strip ─────────────────────────────────────────────────────── */
 .rsu-strip{display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -123,6 +121,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 .s-remote_processing{background:#ede9fe;color:#4c1d95}
 .s-result_returning{background:#d1fae5;color:#065f46}
 .s-complete        {background:#dcfce7;color:#14532d}
+.s-local_queued    {background:#f0f9ff;color:#0c4a6e}
 .s-local_processing{background:#e0f2fe;color:#075985}
 .s-local_complete  {background:#dcfce7;color:#14532d}
 .s-failed          {background:#fee2e2;color:#991b1b}
@@ -179,10 +178,6 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 .state-tip{background:#fff;border:1px solid #e5e4df;border-radius:4px;
   font-size:10px;padding:2px 6px;font-weight:500;white-space:nowrap;
   box-shadow:0 1px 3px rgba(0,0,0,.1)}
-.comm-label{background:rgba(0,0,0,.68)!important;color:#fff!important;
-  border:none!important;border-radius:4px!important;font-size:10px!important;
-  padding:2px 7px!important;font-weight:600!important;white-space:nowrap!important;
-  box-shadow:0 1px 4px rgba(0,0,0,.2)!important;pointer-events:none!important}
 </style>
 </head>
 <body>
@@ -201,12 +196,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
         &nbsp;·&nbsp;
         <span style="color:#555;font-weight:500" id="task-count">0</span> active tasks
       </span>
-      <select id="rsu-filter" class="rsu-filter" title="Filter by RSU">
-        <option value="ALL">All RSUs</option>
-      </select>
       <span class="simtime" id="simtime">sim 00:00:00.000</span>
       <a class="topbar-link" href="secondary.html">Secondary Dashboard</a>
-      <a class="topbar-link" href="lifecycle.html">Lifecycle Storyboard</a>
     </div>
   </div>
 
@@ -235,6 +226,13 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
     <div class="sidebar">
 
       <div class="task-console">
+        <div class="sb-head" style="padding:0 0 8px;border-bottom:none">Task Injection (disabled)</div>
+        <div class="console-card">
+          <div class="field field-full">
+            <div class="console-label">Manual task creation is disabled in the dashboard.</div>
+            <div style="font-size:12px;color:#666;margin-top:6px">Tasks must be created from the simulation (OMNeT++ Qtenv). The dashboard observes task lifecycle events from Redis and does not perform injections.</div>
+          </div>
+        </div>
       </div>
 
       <div class="algo-summary" id="algo-summary-panel">
@@ -352,13 +350,6 @@ let   summaryTimer = null;
 let   selectedRsuId = '';
 const vehicleRsuAssignment = {};
 const taskResultCache = {};
-let   selectedRsuFilter = 'ALL';
-const DEFAULT_RSU_IDS = ['RSU_0', 'RSU_1', 'RSU_2'];
-const RSU_DB_OVERRIDES = {
-  RSU_0: 4,
-  RSU_1: 5,
-  RSU_2: 6,
-};
 
 function formatEntityLabel(kind, rawId) {
   const source = String(rawId ?? '').trim();
@@ -390,7 +381,6 @@ function formatNumber(value, digits = 2, suffix = '') {
 function formatTaskTarget(task) {
   if (!task) return '—';
   const decision = String(task.decision_type || '').toUpperCase();
-  if (decision === 'LOCAL') return 'local (vehicle)';
   const target = task.target_id || task.current_target || task.rsu || '—';
   if (!decision) return String(target);
   return `${decision} ${target}`;
@@ -550,71 +540,10 @@ function renderRsuButtons() {
   });
 }
 
-function rsuIdToDb(rsuId) {
-  if (!rsuId) return null;
-  if (RSU_DB_OVERRIDES[rsuId] != null) return RSU_DB_OVERRIDES[rsuId];
-  const match = String(rsuId).match(/(\d+)$/);
-  return match ? Number(match[1]) : null;
-}
-
-function getSelectedRsuDb() {
-  if (!selectedRsuFilter || selectedRsuFilter === 'ALL') return null;
-  return rsuIdToDb(selectedRsuFilter);
-}
-
-function entityMatchesFilter(entity) {
-  const selectedDb = getSelectedRsuDb();
-  if (selectedDb == null) return true;
-  if (!entity) return false;
-  if (entity.kind === 'rsu') return Number(entity.source_db) === selectedDb;
-  if (entity.source_db == null) return false;
-  return Number(entity.source_db) === selectedDb;
-}
-
-function taskMatchesFilter(task) {
-  const selectedDb = getSelectedRsuDb();
-  if (selectedDb == null) return true;
-  if (!task) return false;
-  if (task.source_db != null) return Number(task.source_db) === selectedDb;
-  if (task.rsu) return rsuIdToDb(task.rsu) === selectedDb;
-  return false;
-}
-
-function renderRsuFilterOptions() {
-  const select = document.getElementById('rsu-filter');
-  if (!select) return;
-  const seen = new Set();
-  Object.values(entities).forEach((entity) => {
-    if (entity?.kind === 'rsu' && entity.id) {
-      seen.add(String(entity.id));
-    }
-  });
-  if (!seen.size) DEFAULT_RSU_IDS.forEach((id) => seen.add(id));
-  const rsuIds = Array.from(seen).sort((a, b) => a.localeCompare(b));
-  const current = selectedRsuFilter || 'ALL';
-
-  select.innerHTML = [
-    '<option value="ALL">All RSUs</option>',
-    ...rsuIds.map((rsuId) => `<option value="${rsuId}">${rsuId}</option>`),
-  ].join('');
-  select.value = rsuIds.includes(current) ? current : 'ALL';
-  selectedRsuFilter = select.value;
-}
-
-function applyRsuFilter(value) {
-  selectedRsuFilter = value || 'ALL';
-  renderRsuFilterOptions();
-  refreshMarkersForFilter();
-  renderTaskList();
-  updateResPanel();
-}
-
 function getFocusedTask() {
-  if (selectedTaskId && tasks[selectedTaskId] && taskMatchesFilter(tasks[selectedTaskId])) {
-    return tasks[selectedTaskId];
-  }
+  if (selectedTaskId && tasks[selectedTaskId]) return tasks[selectedTaskId];
   if (!selectedId) return null;
-  const related = Object.values(tasks).filter(t => taskMatchesFilter(t) && (t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId));
+  const related = Object.values(tasks).filter(t => t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId);
   return related.sort((a, b) => (b.event_order || 0) - (a.event_order || 0))[0] ?? null;
 }
 
@@ -825,14 +754,6 @@ function markerHtml(kind, id, sel) {
 }
 
 function upsertMarker(e) {
-  if (!entityMatchesFilter(e)) {
-    if (markers[e.id]) {
-      map.removeLayer(markers[e.id]);
-      delete markers[e.id];
-      delete markerVisual[e.id];
-    }
-    return;
-  }
   const [lat, lon] = sumoToLatLon(e.x, e.y);
   e.lat = lat; e.lon = lon;
   const sel = e.id === selectedId;
@@ -864,21 +785,6 @@ function upsertMarker(e) {
   }
 }
 
-function refreshMarkersForFilter() {
-  Object.values(entities).forEach((entity) => {
-    upsertMarker(entity);
-  });
-  if (selectedId && !entityMatchesFilter(entities[selectedId])) {
-    selectedId = null;
-  }
-  if (selectedTaskId && !taskMatchesFilter(tasks[selectedTaskId])) {
-    selectedTaskId = null;
-  }
-  const visibleCount = Object.values(entities).filter(entityMatchesFilter).length;
-  const countEl = document.getElementById('entity-count');
-  if (countEl) countEl.textContent = visibleCount;
-}
-
 function stopCommAnimation(taskId) {
   const anim = commLines[taskId];
   if (!anim) return;
@@ -888,7 +794,7 @@ function stopCommAnimation(taskId) {
   delete commLines[taskId];
 }
 
-function startCommAnimation(taskId, pts, color, label) {
+function startCommAnimation(taskId, pts, color) {
   stopCommAnimation(taskId);
   if (!pts || pts.length < 2) return;
 
@@ -898,10 +804,6 @@ function startCommAnimation(taskId, pts, color, label) {
     dashArray: '7 6',
     opacity: 0.95,
   }).addTo(map);
-
-  if (label) {
-    line.bindTooltip(label, { permanent: true, direction: 'center', className: 'comm-label' });
-  }
 
   const dot = L.circleMarker(pts[0], {
     radius: 5,
@@ -932,10 +834,6 @@ function startCommAnimation(taskId, pts, color, label) {
    COMM LINES ON MAP
 ═══════════════════════════════════════════════════════════════════════════ */
 function updateCommLine(task) {
-  if (!taskMatchesFilter(task)) {
-    clearCommLine(task.task_id);
-    return;
-  }
   // Determine endpoints based on current state
   const veh    = entities[task.vehicle];
   const target = entities[task.current_target] ?? entities[task.rsu];
@@ -947,7 +845,7 @@ function updateCommLine(task) {
   if (status.includes('FAIL')) color = '#dc2626';
   else if (lineKey === 'metadata_sent' && task.manual) color = '#dc2626';
   const isActive = ['metadata_sent','decision_returned','task_data_sent',
-                    'result_returning','remote_processing']
+                    'result_returning','remote_processing','local_processing']
                     .includes(task.state);
 
   // Remove old animation
@@ -963,7 +861,7 @@ function updateCommLine(task) {
               task.state === 'result_returning'   ? [to, from] :
               [from, to];
 
-  startCommAnimation(task.task_id, pts, color, task.label || null);
+  startCommAnimation(task.task_id, pts, color);
 }
 
 function clearCommLine(taskId) {
@@ -974,13 +872,14 @@ function clearCommLine(taskId) {
    TASK LIST IN SIDEBAR
 ═══════════════════════════════════════════════════════════════════════════ */
 const STATE_LABELS = {
-  generated:          'Task Created',
+  generated:          'generated',
   metadata_sent:      '① sending metadata',
   decision_returned:  '② decision received',
   task_data_sent:     '③ sending task data',
   remote_processing:  'remote processing',
   result_returning:   '④ result returning',
   complete:           'complete',
+  local_queued:       'local queued',
   local_processing:   'local processing',
   local_complete:     'complete (local)',
   failed:            'failed',
@@ -1007,14 +906,14 @@ function renderTaskList() {
     return;
   }
 
-  const sorted = [...active, ...done].sort((a, b) => (b.event_order || 0) - (a.event_order || 0));
+  const sorted = [...active, ...done];
   list.innerHTML = sorted.map(t => {
     const label = STATE_LABELS[t.state] ?? t.state;
     const isLocal = t.state.startsWith('local');
     const taskType = t.task_type_name ?? t.task_type ?? t.taskType ?? null;
     const decision = t.decision_type ? ` · ${t.decision_type}${t.target_id ? ' ' + t.target_id : ''}` : '';
     const meta = isLocal
-      ? `${taskType ? taskType + ' · ' : ''}${t.vehicle} · local`
+      ? `${taskType ? taskType + ' · ' : ''}${t.vehicle} · local${decision}`
       : `${taskType ? taskType + ' · ' : ''}${t.vehicle} → ${t.rsu ?? '?'}${t.current_target && t.current_target !== t.rsu ? ' → ' + t.current_target : ''}${decision}`;
     const progress = t.progress != null
       ? `<div class="prog-wrap"><div class="prog-fill fill-${isLocal?'cpu':'mem'}"
@@ -1276,8 +1175,6 @@ function selectEntity(id) {
 
 function updateResPanel() {
   if (!selectedId && !selectedTaskId) return;
-  if (selectedId && !entityMatchesFilter(entities[selectedId])) return;
-  if (selectedTaskId && !taskMatchesFilter(tasks[selectedTaskId])) return;
   const e = entities[selectedId];
   const r = resources[selectedId];
   const task = getFocusedTask();
@@ -1308,7 +1205,7 @@ function updateResPanel() {
   const relatedTasks = Object.values(tasks).filter(t => {
     if (!taskMatchesRsu(t)) return false;
     if (openStates.has(t.state)) return false;
-    return taskMatchesFilter(t) && (t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId);
+    return t.vehicle === selectedId || t.rsu === selectedId || t.current_target === selectedId;
   });
   document.getElementById('i-q').textContent = (queueFromRedis != null ? String(queueFromRedis) : String(relatedTasks.length || 0));
 
@@ -1371,18 +1268,15 @@ function handleMsg(msg) {
     updateMarkerVisibility();
 
     if (!selectedId && Object.keys(entities).length > 0) {
-      const visibleEntities = Object.values(entities)
+      const preferred = Object.values(entities)
         .filter(v => entityMatchesRsu(v.id))
-        .filter(entityMatchesFilter);
-      const preferred = visibleEntities.find(v => v.kind === 'vehicle') || Object.values(entities).find(v => entityMatchesRsu(v.id)) || visibleEntities[0];
+        .find(v => v.kind === 'vehicle') || Object.values(entities).find(v => entityMatchesRsu(v.id)) || Object.values(entities)[0];
       if (preferred?.id) {
         selectEntity(preferred.id);
       }
     }
 
-    renderRsuFilterOptions();
-    const visibleCount = Object.values(entities).filter(entityMatchesFilter).length;
-    document.getElementById('entity-count').textContent = visibleCount;
+    document.getElementById('entity-count').textContent = Object.keys(entities).length;
     // Refresh comm lines since positions changed
     Object.values(tasks).filter(task => taskMatchesRsu(task)).forEach(updateCommLine);
     updateResPanel();
@@ -1439,23 +1333,22 @@ function pad3(n) { return String(n).padStart(3, '0'); }
    BOOT
 ═══════════════════════════════════════════════════════════════════════════ */
 (async () => {
-  await loadMapGeoJSON();
-  setupSidebarResizer();
-  setupTaskListResizer();
-  renderRsuButtons();
-  updateRsuStats();
-  renderRsuFilterOptions();
-  const rsuFilter = document.getElementById('rsu-filter');
-  if (rsuFilter) {
-    rsuFilter.addEventListener('change', (ev) => {
-      applyRsuFilter(ev.target.value);
-    });
+  connectWS();
+
+  try {
+    await loadMapGeoJSON();
+    setupSidebarResizer();
+    setupTaskListResizer();
+    renderRsuButtons();
+    updateRsuStats();
+    await refreshActiveVehicles();
+    await refreshTaskSummary();
+  } catch (error) {
+    console.warn('Dashboard boot finished with a recoverable error:', error);
   }
-  await refreshActiveVehicles();
-  await refreshTaskSummary();
+
   activeVehiclesTimer = setInterval(refreshActiveVehicles, 3000);
   summaryTimer = setInterval(() => refreshTaskSummary(), 2000);
-  connectWS();
 })();
 </script>
 </body>
