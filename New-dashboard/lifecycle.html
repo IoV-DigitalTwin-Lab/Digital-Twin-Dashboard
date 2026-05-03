@@ -256,6 +256,52 @@ function getFlow(task) {
   return decision === 'LOCAL' ? 'local' : 'remote';
 }
 
+function cleanEntityId(value, prefixes = []) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  for (const prefix of prefixes) {
+    const re = new RegExp(`^${prefix}[:_\\s-]*`, 'i');
+    if (re.test(raw)) return raw.replace(re, '');
+  }
+  return raw;
+}
+
+function formatVehicle(value) {
+  const id = cleanEntityId(value, ['vehicle', 'node']);
+  return id ? `Vehicle ${id}` : 'Vehicle';
+}
+
+function formatRsu(value) {
+  const id = cleanEntityId(value, ['rsu']);
+  return id ? `RSU ${id}` : 'RSU';
+}
+
+function formatServiceVehicle(value) {
+  const id = cleanEntityId(value, ['sv', 'service_vehicle', 'servicevehicle', 'vehicle']);
+  return id ? `Service Vehicle ${id}` : 'Service Vehicle';
+}
+
+function formatTaskType(task) {
+  const raw = task.task_type_name ?? task.task_type ?? task.taskType ?? '';
+  return raw ? String(raw).replace(/_/g, ' ') : 'Task type unknown';
+}
+
+function formatDecisionTarget(task) {
+  const decision = String(task.decision_type || '').toUpperCase();
+  if (!decision) return 'Decision pending';
+  if (decision === 'LOCAL') return 'Decision: Local vehicle';
+
+  const directTarget = task.target_id || task.processor_id || '';
+  if (decision.includes('SERVICE')) {
+    return directTarget ? `Decision: ${formatServiceVehicle(directTarget)}` : 'Decision: Service Vehicle pending';
+  }
+  const target = directTarget || task.current_target || task.rsu || '';
+  if (decision === 'RSU' || decision.includes('EDGE')) {
+    return `Decision: ${formatRsu(target || task.rsu)}`;
+  }
+  return `Decision: ${decision.replace(/_/g, ' ')}${target ? ' ' + target : ''}`;
+}
+
 function renderTasks() {
   const grid = document.getElementById('task-grid');
   const empty = document.getElementById('empty-state');
@@ -287,9 +333,11 @@ function renderTasks() {
       return `<div class="${cls}"><span class="label">${step.label}</span></div>`;
     }).join('');
 
-    const subtitle = flow === 'local'
-      ? `${task.vehicle || 'vehicle'} · local`
-      : `${task.vehicle || 'vehicle'} → ${task.rsu || task.current_target || 'RSU'}${task.target_id ? ' → ' + task.target_id : ''}`;
+    const routeLabel = flow === 'local'
+      ? `${formatVehicle(task.vehicle)} · local`
+      : `${formatVehicle(task.vehicle)} → ${formatRsu(task.rsu || 'RSU')}`;
+    const taskTypeLabel = formatTaskType(task);
+    const decisionLabel = formatDecisionTarget(task);
     const stateLabel = String(task.state || '').replace(/_/g, ' ');
 
     return `
@@ -297,7 +345,8 @@ function renderTasks() {
         <div class="card-head">
           <div>
             <div class="card-title">Task ${task.task_id}</div>
-            <div class="card-sub">${subtitle}</div>
+            <div class="card-sub">${taskTypeLabel}</div>
+            <div class="card-sub">${routeLabel} · ${decisionLabel}</div>
           </div>
           <div class="meta">
             <span class="chip ${chipClass}">${stateLabel || 'pending'}</span>

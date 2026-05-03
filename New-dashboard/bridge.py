@@ -449,7 +449,7 @@ async def load_task_detail_metrics(r: aioredis.Redis, task_id: str, state: dict[
     }
 
 
-async def resolve_task_context(r: aioredis.Redis, task_id: str) -> tuple[str, str, str, str]:
+async def resolve_task_context(r: aioredis.Redis, task_id: str) -> tuple[str, str, str, str, str]:
     state = await r.hgetall(f"task:{task_id}:state")
     req = await r.hgetall(f"task:{task_id}:request")
     dec = await r.hgetall(f"task:{task_id}:decision")
@@ -457,7 +457,8 @@ async def resolve_task_context(r: aioredis.Redis, task_id: str) -> tuple[str, st
     rsu_id = req.get("rsu_id") or ""
     decision_type = state.get("decision_type") or dec.get("type") or ""
     target_id = state.get("target_id") or state.get("processor_id") or dec.get("target") or rsu_id
-    return vehicle_id, rsu_id, decision_type, target_id
+    task_type = state.get("task_type") or state.get("task_type_name") or req.get("task_type") or req.get("task_type_name") or ""
+    return vehicle_id, rsu_id, decision_type, target_id, task_type
 
 
 async def init_task_stream_offsets(redis_sources: list[dict[str, Any]]) -> None:
@@ -503,7 +504,7 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                 if event_type.upper() == "DECISION_LOCAL":
                     local_task_ids.add(task_id)
 
-                vehicle_id, rsu_id, decision_type, target_id = await resolve_task_context(r, task_id)
+                vehicle_id, rsu_id, decision_type, target_id, task_type = await resolve_task_context(r, task_id)
 
                 # Fallback: extract vehicle_id from source_entity when the task
                 # has no task:state hash (common for local/vehicle-only tasks).
@@ -536,6 +537,9 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                     "event_type": event_type,
                     "source_db": source_db,
                 }
+                if task_type:
+                    event["task_type"] = task_type
+                    event["task_type_name"] = task_type
                 # Only include decision_type when it is known; omitting it for
                 # empty strings prevents overwriting the correct value that an
                 # earlier state-poller event already set on the task object.
@@ -577,7 +581,7 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                     event["progress"] = 100
 
                 # Pass through common state fields if the stream writer included them.
-                for name in ("decision_type", "target_id", "latency", "energy", "reason", "processor_id"):
+                for name in ("decision_type", "target_id", "latency", "energy", "reason", "processor_id", "task_type", "task_type_name"):
                     if name in fields:
                         event[name] = fields[name]
                 if "status" in fields:
@@ -995,6 +999,7 @@ async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
                 decision_type = detail["decision_type"] or state.get("decision_type", "")
                 remote = is_remote(decision_type)
                 target_id = detail["target_id"] or state.get("target_id") or state.get("processor_id") or (rsu_id if remote else "")
+                task_type = state.get("task_type") or state.get("task_type_name") or request.get("task_type") or request.get("task_type_name") or ""
                 raw_status = state.get("status", "PENDING")
                 if is_failure_status(raw_status):
                     continue
@@ -1032,6 +1037,9 @@ async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
                         "reason": detail["reason"],
                         "source_db": source_db,
                     }
+                    if task_type:
+                        event["task_type"] = task_type
+                        event["task_type_name"] = task_type
 
                     if mapped_state == "metadata_sent":
                         if rsu_id:
