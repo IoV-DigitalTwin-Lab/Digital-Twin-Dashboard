@@ -323,7 +323,6 @@ function renderTasks() {
     const currentIndex = stateIndex(task.state, flow);
     const status = String(task.status || task.state || '').toUpperCase();
     const failed = status.includes('FAIL') || task.state === 'failed';
-    const chipClass = failed ? 'fail' : (task.state === 'complete' || task.state === 'local_complete') ? 'success' : '';
 
     const rail = steps.map((step, idx) => {
       let cls = 'step';
@@ -338,7 +337,6 @@ function renderTasks() {
       : `${formatVehicle(task.vehicle)} → ${formatRsu(task.rsu || 'RSU')}`;
     const taskTypeLabel = formatTaskType(task);
     const decisionLabel = formatDecisionTarget(task);
-    const stateLabel = String(task.state || '').replace(/_/g, ' ');
 
     return `
       <div class="card">
@@ -347,10 +345,6 @@ function renderTasks() {
             <div class="card-title">Task ${task.task_id}</div>
             <div class="card-sub">${taskTypeLabel}</div>
             <div class="card-sub">${routeLabel} · ${decisionLabel}</div>
-          </div>
-          <div class="meta">
-            <span class="chip ${chipClass}">${stateLabel || 'pending'}</span>
-            ${task.decision_type && task.decision_type.toUpperCase() !== 'LOCAL' ? `<span class="chip">${task.decision_type}</span>` : ''}
           </div>
         </div>
         <div class="rail">
