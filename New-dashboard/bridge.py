@@ -44,6 +44,21 @@ task_stream_last_id: dict[int, str] = {}
 # Track task IDs confirmed as local (DECISION_LOCAL seen) across events.
 local_task_ids: set[str] = set()
 
+REMOTE_PHASE_BY_STATE = {
+    "generated": 0,
+    "metadata_sent": 1,
+    "decision_returned": 2,
+    "task_data_sent": 3,
+    "remote_processing": 4,
+    "result_returning": 5,
+    "complete": 6,
+}
+LOCAL_PHASE_BY_STATE = {
+    "generated": 10,
+    "local_processing": 11,
+    "local_complete": 12,
+}
+
 
 async def broadcast(msg: dict) -> None:
     if not clients:
@@ -134,6 +149,26 @@ def map_task_state(status: str, decision_type: str) -> str:
     return "generated"
 
 
+def is_failure_status(status: str) -> bool:
+    return (status or "").upper() in {
+        "FAILED",
+        "REJECTED",
+        "EXPIRED",
+        "TIMEOUT",
+        "FAILURE",
+        "OFFLOAD_TIMEOUT_FAIL",
+        "SV_DEADLINE_MISSED",
+    }
+
+
+def dashboard_visible_status(status: str, mapped_state: str) -> str:
+    if not is_failure_status(status):
+        return status
+    if mapped_state in {"complete", "local_complete"}:
+        return "COMPLETED"
+    return mapped_state.upper()
+
+
 def is_remote(decision_type: str) -> bool:
     d = (decision_type or "").upper()
     return d not in {"", "LOCAL"}
@@ -202,15 +237,16 @@ def phase_state_name(phase: int, remote: bool) -> str:
 
 def build_phase_sequence(prev_phase: int | None, next_phase: int, remote: bool) -> list[int]:
     if prev_phase is None:
-        return [next_phase]
+        start_phase = 0 if remote else 10
+        return list(range(start_phase, next_phase + 1))
 
     if not remote:
         if next_phase <= prev_phase:
-            return [next_phase]
+            return []
         return list(range(prev_phase + 1, next_phase + 1))
 
     if next_phase <= prev_phase:
-        return [next_phase]
+        return []
 
     seq = list(range(prev_phase + 1, next_phase + 1))
     # Ensure metadata leg exists for remote flow once.
@@ -222,14 +258,32 @@ def build_phase_sequence(prev_phase: int | None, next_phase: int, remote: bool) 
     return seq
 
 
+def phase_for_task_state(mapped_state: str, is_local: bool) -> int | None:
+    if is_local:
+        return LOCAL_PHASE_BY_STATE.get(mapped_state)
+    return REMOTE_PHASE_BY_STATE.get(mapped_state)
+
+
+def accept_forward_task_state(task_id: str, mapped_state: str, is_local: bool) -> bool:
+    next_phase = phase_for_task_state(mapped_state, is_local)
+    if next_phase is None:
+        return True
+
+    prev_phase = task_phase_cache.get(task_id)
+    if prev_phase is not None and next_phase < prev_phase:
+        return False
+
+    if prev_phase is None or next_phase > prev_phase:
+        task_phase_cache[task_id] = next_phase
+    return True
+
+
 def map_lifecycle_event_to_state(event_type: str) -> str | None:
     et = (event_type or "").upper()
     if et == "TASK_CREATED":
         return "generated"
     if et == "DECISION_LOCAL":
         return "generated"  # local task confirmed; no animation
-    if et == "METADATA_SENT_MANUAL":
-        return "generated"  # no animation — treated as ordinary task start
     if "METADATA_SENT" in et:
         return "metadata_sent"
     if et in {"SV_TASK_RECEIVED"}:
@@ -267,7 +321,7 @@ def map_lifecycle_event_to_state(event_type: str) -> str | None:
     }:
         return "complete"
     if et in {"FAILED", "OFFLOAD_TIMEOUT_FAIL", "SV_DEADLINE_MISSED", "REJECTED"}:
-        return "failed"
+        return None
     return None
 
 
@@ -275,8 +329,6 @@ def map_lifecycle_event_to_edge(event_type: str) -> str | None:
     et = (event_type or "").upper()
     if et in {"TASK_CREATED", "DECISION_LOCAL"}:
         return None  # no animation for local task lifecycle markers
-    if et == "METADATA_SENT_MANUAL":
-        return None  # no comm-line animation for manual tasks
     if "METADATA_SENT" in et:
         return "metadata_sent"
     if et in {"SV_TASK_RECEIVED"}:
@@ -473,6 +525,9 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                     # both become local_complete for local tasks.
                     mapped_state = "local_complete"
 
+                if not accept_forward_task_state(task_id, mapped_state, is_local):
+                    continue
+
                 event: dict[str, Any] = {
                     "task_id": task_id,
                     "vehicle": vehicle_id,
@@ -522,9 +577,11 @@ async def task_lifecycle_stream_poller(redis_sources: list[dict[str, Any]]) -> N
                     event["progress"] = 100
 
                 # Pass through common state fields if the stream writer included them.
-                for name in ("status", "decision_type", "target_id", "latency", "energy", "reason", "processor_id"):
+                for name in ("decision_type", "target_id", "latency", "energy", "reason", "processor_id"):
                     if name in fields:
                         event[name] = fields[name]
+                if "status" in fields:
+                    event["status"] = dashboard_visible_status(fields["status"], mapped_state)
 
                 # If lifecycle writer included a details JSON, parse for manual marker
                 details_raw = fields.get("details")
@@ -939,6 +996,8 @@ async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
                 remote = is_remote(decision_type)
                 target_id = detail["target_id"] or state.get("target_id") or state.get("processor_id") or (rsu_id if remote else "")
                 raw_status = state.get("status", "PENDING")
+                if is_failure_status(raw_status):
+                    continue
                 next_phase = phase_from_state(raw_status, decision_type)
                 signature = "|".join([
                     raw_status,
@@ -959,16 +1018,12 @@ async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
                 for ph in phases_to_emit:
                     mapped_state = phase_state_name(ph, remote)
 
-                    # Communication legs are emitted from explicit lifecycle stream.
-                    if mapped_state in {"metadata_sent", "decision_returned", "task_data_sent", "result_returning"}:
-                        continue
-
                     event: dict[str, Any] = {
                         "task_id": task_id,
                         "vehicle": vehicle_id,
                         "rsu": rsu_id,
                         "state": mapped_state,
-                        "status": detail["status"],
+                        "status": dashboard_visible_status(detail["status"], mapped_state),
                         "decision_type": decision_type,
                         "target_id": target_id,
                         "processor_id": detail["processor_id"],
@@ -978,13 +1033,23 @@ async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
                         "source_db": source_db,
                     }
 
-                    if target_id:
-                        event["current_target"] = target_id
                     if mapped_state == "metadata_sent":
+                        if rsu_id:
+                            event["current_target"] = rsu_id
                         event["edge_type"] = "metadata_sent"
                     elif mapped_state == "decision_returned":
+                        if rsu_id:
+                            event["current_target"] = rsu_id
                         event["edge_type"] = "decision_returned"
-                    elif mapped_state == "task_data_sent":
+                    elif mapped_state in {"task_data_sent", "remote_processing", "result_returning"}:
+                        if target_id:
+                            event["current_target"] = target_id
+                        elif rsu_id:
+                            event["current_target"] = rsu_id
+                    elif target_id:
+                        event["current_target"] = target_id
+
+                    if mapped_state == "task_data_sent":
                         event["edge_type"] = "task_data_sent"
                     elif mapped_state in {"result_returning", "complete", "local_complete"}:
                         event["edge_type"] = "result_returning"
@@ -995,6 +1060,7 @@ async def task_state_poller(redis_sources: list[dict[str, Any]]) -> None:
                         event["progress"] = 100
 
                     await broadcast({"type": "task_event", "data": event})
+                    task_phase_cache[task_id] = ph
 
                     # Small gap so UI can render each communication leg transition.
                     if len(phases_to_emit) > 1:

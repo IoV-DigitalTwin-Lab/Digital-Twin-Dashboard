@@ -993,6 +993,25 @@ const STATE_LABELS = {
   failed:            'failed',
 };
 
+const TASK_STATE_RANK = {
+  generated: 0,
+  metadata_sent: 1,
+  decision_returned: 2,
+  task_data_sent: 3,
+  remote_processing: 4,
+  result_returning: 5,
+  complete: 6,
+  local_processing: 11,
+  local_complete: 12,
+};
+
+function shouldAcceptTaskUpdate(prev, next) {
+  if (!next || next.state === 'failed') return false;
+  const prevRank = TASK_STATE_RANK[prev?.state];
+  const nextRank = TASK_STATE_RANK[next.state];
+  return prevRank == null || nextRank == null || nextRank >= prevRank;
+}
+
 function renderTaskList() {
   const list = document.getElementById('task-list');
   const allTasks = Object.values(tasks).filter(task => taskMatchesRsu(task));
@@ -1405,8 +1424,10 @@ function handleMsg(msg) {
   }
 
   else if (msg.type === 'task_event') {
-    const t = msg.data;
+    const t = { ...msg.data };
+    if (String(t.status || '').toUpperCase().includes('FAIL')) t.status = t.state;
     const prev = tasks[t.task_id] ?? {};
+    if (!shouldAcceptTaskUpdate(prev, t)) return;
     tasks[t.task_id] = { ...prev, ...t, event_order: (prev.event_order ?? 0) + 1 };
     if (map && taskMatchesRsu(tasks[t.task_id])) updateCommLine(tasks[t.task_id]);
     if (t.state === 'complete' || t.state === 'local_complete' || t.state === 'failed') {
