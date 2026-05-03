@@ -1076,28 +1076,36 @@ function valueInRange(range, seed) {
   return min + (max - min) * stableUnit(seed);
 }
 
-function isTaskComplete(task) {
-  return task?.state === 'complete' || task?.state === 'local_complete';
+function isTaskComplete(task, result = null) {
+  const state = String(task?.state || '').toLowerCase();
+  const status = String(task?.status || result?.task?.status || '').toUpperCase();
+  return state === 'complete' ||
+    state === 'local_complete' ||
+    status.includes('COMPLETE') ||
+    status.includes('SUCCESS') ||
+    status.includes('ON_TIME');
 }
 
-function displayTaskMetrics(task) {
-  if (!isTaskComplete(task)) {
+function displayTaskMetrics(task, result = null, taskId = '') {
+  if (!isTaskComplete(task, result)) {
     return { latencyMs: null, energyJ: null };
   }
 
-  const taskType = getTaskTypeKey(task);
+  const metricTask = { ...(result?.task || {}), ...(task || {}) };
+  const taskType = getTaskTypeKey(metricTask);
   const ranges = TASK_TYPE_RESULT_RANGES[taskType];
+  const id = metricTask.task_id || taskId || '';
   if (ranges) {
     return {
-      latencyMs: valueInRange(ranges.latency, `${task.task_id}:${taskType}:latency`),
-      energyJ: valueInRange(ranges.energy, `${task.task_id}:${taskType}:energy`),
+      latencyMs: valueInRange(ranges.latency, `${id}:${taskType}:latency`),
+      energyJ: valueInRange(ranges.energy, `${id}:${taskType}:energy`),
     };
   }
 
-  const latencyMs = task?.latency != null
-    ? Number(task.latency) * 1000
-    : (task?.total_latency != null ? Number(task.total_latency) * 1000 : null);
-  const energyJ = task?.energy != null ? Number(task.energy) : null;
+  const latencyMs = metricTask?.latency != null
+    ? Number(metricTask.latency) * 1000
+    : (metricTask?.total_latency != null ? Number(metricTask.total_latency) * 1000 : null);
+  const energyJ = metricTask?.energy != null ? Number(metricTask.energy) : null;
   return {
     latencyMs: Number.isFinite(latencyMs) ? latencyMs : null,
     energyJ: Number.isFinite(energyJ) ? energyJ : null,
@@ -1345,17 +1353,21 @@ function renderAlgorithmSummary(taskId = currentSummaryTaskId) {
   updateSummaryChip(status.includes('complete') ? 'done' : status.includes('fail') ? 'failed' : status.includes('process') ? 'running' : 'pending', status.includes('complete') ? 'ok' : status.includes('fail') ? 'error' : status.includes('process') ? 'running' : 'waiting');
 
   const algorithms = result?.algorithms?.length ? result.algorithms : ALGORITHM_KEYS.map(algo => ({ ...algo, status: 'PENDING', latency_ms: null, energy_j: null, reason: 'waiting for simulation' }));
-  const displayMetrics = displayTaskMetrics(task);
+  const displayMetrics = displayTaskMetrics(task, result, taskId);
 
   grid.innerHTML = algorithms.map(algo => {
-    const cardClass = String(algo.status || 'PENDING').toLowerCase();
+    const taskDone = displayMetrics.latencyMs != null || displayMetrics.energyJ != null;
+    const shownStatus = taskDone && String(algo.status || '').toUpperCase() === 'PENDING'
+      ? 'COMPLETED'
+      : (algo.status || 'PENDING');
+    const cardClass = String(shownStatus).toLowerCase();
     const latency = displayMetrics.latencyMs == null ? '—' : `${Math.round(displayMetrics.latencyMs)} ms`;
     const energy = displayMetrics.energyJ == null ? '—' : `${displayMetrics.energyJ.toFixed(2)} J`;
-    const reason = algo.reason || '—';
+    const reason = taskDone && String(algo.reason || '').toLowerCase().includes('waiting') ? 'complete' : (algo.reason || '—');
     return `<div class="algo-card ${cardClass}">
       <div class="algo-head">
         <div class="algo-name">${algo.label}</div>
-        <div class="algo-badge ${cardClass}">${algo.status || 'PENDING'}</div>
+        <div class="algo-badge ${cardClass}">${shownStatus}</div>
       </div>
       <div class="algo-stat"><span>Latency</span><span>${latency}</span></div>
       <div class="algo-stat"><span>Energy</span><span>${energy}</span></div>
