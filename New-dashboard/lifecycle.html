@@ -286,14 +286,19 @@ function formatTaskType(task) {
   return raw ? String(raw).replace(/_/g, ' ') : 'Task type unknown';
 }
 
+function hasKnownTaskType(task) {
+  const raw = task?.task_type_name ?? task?.task_type ?? task?.taskType ?? '';
+  return String(raw || '').trim().length > 0;
+}
+
 function formatDecisionTarget(task) {
   const decision = String(task.decision_type || '').toUpperCase();
-  if (!decision) return 'Decision pending';
+  if (!decision) return '';
   if (decision === 'LOCAL') return 'Decision: Local vehicle';
 
   const directTarget = task.target_id || task.processor_id || '';
   if (decision.includes('SERVICE')) {
-    return directTarget ? `Decision: ${formatServiceVehicle(directTarget)}` : 'Decision: Service Vehicle pending';
+    return directTarget ? `Decision: ${formatServiceVehicle(directTarget)}` : '';
   }
   const target = directTarget || task.current_target || task.rsu || '';
   if (decision === 'RSU' || decision.includes('EDGE')) {
@@ -309,6 +314,7 @@ function renderTasks() {
 
   const list = Object.values(tasks)
     .filter(taskMatchesFilter)
+    .filter(hasKnownTaskType)
     .sort((a, b) => (b.event_order || 0) - (a.event_order || 0));
 
   if (!list.length) {
@@ -337,6 +343,7 @@ function renderTasks() {
       : `${formatVehicle(task.vehicle)} → ${formatRsu(task.rsu || 'RSU')}`;
     const taskTypeLabel = formatTaskType(task);
     const decisionLabel = formatDecisionTarget(task);
+    const routeDecisionLabel = decisionLabel ? `${routeLabel} · ${decisionLabel}` : routeLabel;
 
     return `
       <div class="card">
@@ -344,7 +351,7 @@ function renderTasks() {
           <div>
             <div class="card-title">Task ${task.task_id}</div>
             <div class="card-sub">${taskTypeLabel}</div>
-            <div class="card-sub">${routeLabel} · ${decisionLabel}</div>
+            <div class="card-sub">${routeDecisionLabel}</div>
           </div>
         </div>
         <div class="rail">
