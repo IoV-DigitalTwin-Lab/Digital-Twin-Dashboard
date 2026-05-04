@@ -130,22 +130,27 @@ const REMOTE_PROCESSING_FALLBACK_MS = 10000;
 const TASK_TYPE_VISUAL_TIMING_MS = {
   COOPERATIVE_PERCEPTION: {
     default: 3000,
+    sending_metadata: 1000,
     remote_processing: 6000,
   },
   ROUTE_OPTIMIZATION: {
     default: 7000,
+    sending_metadata: 2000,
     remote_processing: 12000,
   },
   FLEET_TRAFFIC_FORECAST: {
     default: 9000,
+    sending_metadata: 2000,
     remote_processing: 15000,
   },
   VOICE_COMMAND_PROCESSING: {
     default: 4000,
+    sending_metadata: 1000,
     remote_processing: 7000,
   },
   SENSOR_HEALTH_CHECK: {
     default: 5000,
+    sending_metadata: 1500,
     remote_processing: 10000,
   },
 };
@@ -171,6 +176,9 @@ function getTaskTypeKey(task) {
 
 function getVisualFallbackMs(task) {
   const timing = TASK_TYPE_VISUAL_TIMING_MS[getTaskTypeKey(task)];
+  if (task?.state === 'metadata_sent') {
+    return timing?.sending_metadata ?? timing?.default ?? VISUAL_FALLBACK_MS;
+  }
   if (task?.state === 'remote_processing') {
     return timing?.remote_processing ?? REMOTE_PROCESSING_FALLBACK_MS;
   }
